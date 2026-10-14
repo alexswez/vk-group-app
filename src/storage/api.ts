@@ -29,10 +29,15 @@ import {
 } from './supabase';
 
 /**
- * Адрес нашего Express-сервера. Берём из переменной окружения Vite (файл .env),
- * а если её нет — используем локальный адрес при разработке.
+ * Адрес нашего Express-сервера. Берём из переменной окружения Vite (файл .env.local).
+ *
+ * Если переменная не задана:
+ *   • при разработке (npm start) подставляем localhost — удобно держать сервер локально;
+ *   • в боевой сборке оставляем пустую строку, чтобы адрес локального сервера не попадал
+ *     в опубликованное приложение (там работает Supabase, он настраивается отдельно).
  */
-const BASE_URL: string = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+const BASE_URL: string =
+  import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '');
 
 /** Был ли сервер доступен при последней проверке. */
 let serverAvailable = false;
@@ -69,10 +74,14 @@ const REQUEST_TIMEOUT_MS = 15000;
  * AbortSignal.timeout — «предохранитель» от бесконечного ожидания.
  */
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  // Заголовки вынимаем отдельно и подставляем последними — иначе переданные заголовки
+  // затрёт весь набор, включая Content-Type.
+  const { headers: extraHeaders, ...restInit } = init ?? {};
+
   const response = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    ...restInit,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    ...init,
+    headers: { 'Content-Type': 'application/json', ...(extraHeaders as Record<string, string> | undefined) },
   });
 
   if (!response.ok) {

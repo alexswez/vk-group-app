@@ -51,10 +51,15 @@ const headers = (extra?: Record<string, string>): Record<string, string> => {
 
 /** Обёртка над fetch к REST API Supabase. */
 const rest = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  // ВАЖНО: заголовки запроса вынимаем отдельно и подставляем ПОСЛЕ остальных параметров.
+  // Если просто написать { headers: ..., ...init }, то переданные заголовки (например,
+  // Prefer при записи) затрут apikey, и сервер ответит 401 «No API key found in request».
+  const { headers: extraHeaders, ...restInit } = init ?? {};
+
   const response = await fetch(`${BASE_URL}/rest/v1${path}`, {
-    headers: headers(init?.headers as Record<string, string> | undefined),
+    ...restInit,
+    headers: headers(extraHeaders as Record<string, string> | undefined),
     signal: AbortSignal.timeout(TIMEOUT_MS),
-    ...init,
   });
 
   const text = await response.text();

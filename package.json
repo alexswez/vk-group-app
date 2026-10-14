@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "deploy": "vite build && vk-miniapps-deploy",
     "test": "node --test tests/",
-    "check": "tsc --noEmit && npm run lint && npm test"
+    "check": "tsc --noEmit && npm run lint && npm test",
+    "check:driver": "node scripts/check-driver.mjs"
   },
   "dependencies": {
     "@vkontakte/icons": "^3.1.1",
