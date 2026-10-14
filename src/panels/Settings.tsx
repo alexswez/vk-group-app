@@ -25,6 +25,8 @@ export const Settings = ({ nav }: NavIdProps) => {
   const { group, tasks, lessons, subjects, prefs, user, serverMode, setGroupName, patchPrefs, resetToMock, refresh } =
     useAppData();
   const [groupName, setLocalGroupName] = useState(group.groupName);
+  /** Показывать ли подтверждение полного сброса данных группы. */
+  const [confirmReset, setConfirmReset] = useState(false);
 
   // Если название группы изменилось в другом месте, синхронизируем поле ввода.
   useEffect(() => {
@@ -111,10 +113,40 @@ export const Settings = ({ nav }: NavIdProps) => {
           <Button size="m" mode="secondary" onClick={() => void refresh()}>
             Обновить данные
           </Button>
-          <Button size="m" appearance="negative" onClick={() => void resetToMock()}>
-            Сбросить к тестовым данным
-          </Button>
+          {!confirmReset && (
+            <Button size="m" appearance="negative" onClick={() => setConfirmReset(true)}>
+              Сбросить к тестовым данным
+            </Button>
+          )}
         </Div>
+
+        {/* Сброс удаляет задания и расписание ВСЕЙ группы, поэтому спрашиваем подтверждение:
+            в общем приложении одно случайное нажатие не должно стирать данные одногруппников. */}
+        {confirmReset && (
+          <Card mode="outline" style={{ marginTop: 8 }}>
+            <Div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span>
+                Сбросить данные <b>всей группы</b>? Все добавленные задания и пары будут удалены,
+                вместо них вернутся тестовые.
+              </span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button
+                  size="s"
+                  appearance="negative"
+                  onClick={() => {
+                    setConfirmReset(false);
+                    void resetToMock();
+                  }}
+                >
+                  Да, сбросить всё
+                </Button>
+                <Button size="s" mode="tertiary" onClick={() => setConfirmReset(false)}>
+                  Отмена
+                </Button>
+              </div>
+            </Div>
+          </Card>
+        )}
       </Group>
     </Panel>
   );
