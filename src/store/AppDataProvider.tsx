@@ -5,7 +5,7 @@
 //   • сервер выключен  → изменения сохраняются в localStorage (режим разработки).
 // Приложение при этом ведёт себя одинаково — этим и хорош слой хранения.
 
-import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import bridge, { UserInfo } from '@vkontakte/vk-bridge';
 
 import { GroupData, Lesson, Task, TaskStatus, UserPrefs } from '../types';
@@ -17,6 +17,7 @@ import {
   apiCreateTask,
   apiDeleteLesson,
   apiDeleteTask,
+  apiGetGroup,
   apiPatchTask,
   apiSetGroupName,
   apiUpdateLesson,
@@ -38,6 +39,17 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserInfo | undefined>(undefined);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+
+  /**
+   * Ссылка на самые свежие данные.
+   * Зачем: если пользователь быстро нажмёт две кнопки подряд, второй обработчик
+   * получил бы из замыкания УСТАРЕВШИЕ данные и затёр бы первое изменение.
+   * Через ref мы всегда видим актуальное состояние.
+   */
+  const groupRef = useRef(group);
+  useEffect(() => {
+    groupRef.current = group;
+  }, [group]);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,26 +86,39 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
    * Главная «рабочая лошадка»: применяет изменение.
    * 1) Сразу обновляет интерфейс (оптимистично) — пользователь не ждёт сеть.
    * 2) Если сервер доступен, отправляет запрос и берёт его версию данных как истину.
-   * 3) Если сервера нет, сохраняет изменение в localStorage.
+   * 3) Если сервер отклонил запрос — перечитывает данные с сервера, чтобы интерфейс
+   *    не разошёлся с реальностью (например, сервер не принял данные при валидации).
+   * 4) Если сервера нет вовсе — сохраняет изменение в localStorage.
    */
   const mutate = useCallback(
     async (localUpdater: (current: GroupData) => GroupData, serverCall?: () => Promise<GroupData>) => {
-      const optimistic = localUpdater(group);
+      const optimistic = localUpdater(groupRef.current);
+      // Обновляем и состояние, и ссылку — следующая правка сразу увидит это изменение.
+      groupRef.current = optimistic;
       setGroup(optimistic);
 
       if (serverCall && isServerAvailable()) {
         try {
           const fromServer = await serverCall();
+          groupRef.current = fromServer;
           setGroup(fromServer);
           return;
         } catch {
-          // Сервер отвалился во время работы — тихо переходим в локальный режим.
+          // Запрос не прошёл. Пробуем взять актуальную версию данных с сервера.
+          try {
+            const fromServer = await apiGetGroup();
+            groupRef.current = fromServer;
+            setGroup(fromServer);
+            return;
+          } catch {
+            // Сервер недоступен — работаем локально.
+          }
         }
       }
 
       await saveGroupData(optimistic);
     },
-    [group],
+    [],
   );
 
   const addTask = useCallback(
@@ -222,6 +247,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
 
   const resetToMock = useCallback(async () => {
     const fresh = await resetGroupData();
+    groupRef.current = fresh;
     setGroup(fresh);
   }, []);
 
