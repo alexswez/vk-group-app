@@ -56,20 +56,42 @@ const rest = async <T>(path: string, init?: RequestInit): Promise<T> => {
   // Prefer при записи) затрут apikey, и сервер ответит 401 «No API key found in request».
   const { headers: extraHeaders, ...restInit } = init ?? {};
 
-  const response = await fetch(`${BASE_URL}/rest/v1${path}`, {
-    ...restInit,
-    headers: headers(extraHeaders as Record<string, string> | undefined),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  /** Одна попытка запроса. */
+  const attempt = async (): Promise<T> => {
+    const response = await fetch(`${BASE_URL}/rest/v1${path}`, {
+      ...restInit,
+      headers: headers(extraHeaders as Record<string, string> | undefined),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
 
-  const text = await response.text();
+    const text = await response.text();
 
-  if (!response.ok) {
-    throw new Error(`Supabase ответил ${response.status}: ${text.slice(0, 200)}`);
+    if (!response.ok) {
+      const error = new Error(`Supabase ответил ${response.status}: ${text.slice(0, 200)}`) as Error & {
+        status?: number;
+      };
+      // Запоминаем код ответа: по нему отличаем «сервер сказал нет» от сетевого сбоя.
+      error.status = response.status;
+      throw error;
+    }
+
+    // POST с заголовком Prefer: return=minimal возвращает пустое тело — учитываем это.
+    return text ? (JSON.parse(text) as T) : (undefined as T);
+  };
+
+  try {
+    return await attempt();
+  } catch (error) {
+    // Повторяем ТОЛЬКО сетевые сбои: обрыв соединения или превышение таймаута.
+    // Причина, по которой это нужно: браузер и Node переиспользуют соединения, и иногда
+    // попытка воспользоваться «застоявшимся» соединением приводит к зависанию запроса.
+    // Без повтора приложение решило бы, что облако недоступно, и ушло в локальный режим.
+    // Ответы сервера (400, 404, 409 и т. п.) не повторяем — они осмысленные.
+    if ((error as { status?: number })?.status) throw error;
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return attempt();
   }
-
-  // POST с заголовком Prefer: return=minimal возвращает пустое тело — учитываем это.
-  return text ? (JSON.parse(text) as T) : (undefined as T);
 };
 
 // ---------------------------------------------------------------- ЧТЕНИЕ
