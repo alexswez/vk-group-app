@@ -11,6 +11,14 @@ export type LessonKind = 'lecture' | 'practice' | 'lab';
 /** Чётность недели: all — каждую неделю, odd — по нечётным, even — по чётным. */
 export type WeekParity = 'all' | 'odd' | 'even';
 
+/**
+ * Период обучения. Важно для очно-заочной формы:
+ *   • 'session' — сессия: занятия идут очно, по дням недели (привычная «сетка»);
+ *   • 'online'  — дистанционный период: занятия привязаны к конкретным датам (вебинары),
+ *                 потому что они не повторяются каждую неделю.
+ */
+export type LessonMode = 'online' | 'session';
+
 /** Учебный предмет (дисциплина). */
 export interface Subject {
   id: string;
@@ -31,6 +39,10 @@ export interface Lesson {
   room: string;
   kind: LessonKind;
   parity: WeekParity;
+  /** Период: сессия (по дням недели) или дистанционное занятие (по дате). */
+  mode: LessonMode;
+  /** Дата занятия для дистанционного периода: "ГГГГ-ММ-ДД". Для сессии не используется. */
+  date?: string;
 }
 
 /** Вид задания. */
@@ -53,6 +65,34 @@ export interface Task {
   authorId?: number;
   authorName?: string;
   createdAt: string;
+  /** Файл-вложение, загруженный в наше хранилище (путь внутри бакета). */
+  attachmentPath?: string;
+  /** Имя файла вложения — показываем пользователю. */
+  attachmentName?: string;
+  /** Внешняя ссылка, если файл лежит не у нас (например, на диске или в облаке вуза). */
+  attachmentLink?: string;
+}
+
+/**
+ * Учебный материал по предмету: конспект, методичка, презентация, запись занятия.
+ * Хранится либо файлом в бакете Supabase Storage, либо внешней ссылкой.
+ */
+export interface Material {
+  id: string;
+  subjectId: string;
+  title: string;
+  description: string;
+  /** Путь к файлу внутри бакета "materials". */
+  filePath?: string;
+  /** Исходное имя файла. */
+  fileName?: string;
+  /** Размер файла в байтах. */
+  fileSize?: number;
+  /** Внешняя ссылка (если файл лежит не у нас). */
+  link?: string;
+  /** Кто загрузил (имя пользователя из VK). */
+  uploadedBy?: string;
+  uploadedAt: string;
 }
 
 /**
@@ -67,6 +107,8 @@ export interface GroupData {
   subjects: Subject[];
   lessons: Lesson[];
   tasks: Task[];
+  /** Материалы по предметам: файлы и ссылки. */
+  materials: Material[];
   updatedAt: string;
 }
 

@@ -1,7 +1,7 @@
 // Тестовые («мок») данные для группы. Позже они будут приходить с бэкенда,
 // но структура останется точно такой же — поэтому интерфейс менять не придётся.
 
-import { GroupData, Lesson, Subject, Task } from '../types';
+import { GroupData, Lesson, Material, Subject, Task } from '../types';
 import { isoDaysFromNow } from '../utils/format';
 
 /** Предметы 3 курса специальности «Информационные системы». */
@@ -15,30 +15,35 @@ const subjects: Subject[] = [
   { id: 'pe', title: 'Физическая культура', short: 'Физра', teacher: 'Зайцев П. Р.' },
 ];
 
-/** Расписание на учебную неделю. Время — строками "ЧЧ:ММ", так их удобно сравнивать. */
+/**
+ * Расписание. Для очно-заочной формы важны оба периода:
+ *   • mode: 'session' — занятия сессии: идут очно по дням недели (привычная сетка);
+ *   • mode: 'online'  — дистанционные занятия: привязаны к конкретным датам,
+ *     потому что повторяются не каждую неделю.
+ */
 const lessons: Lesson[] = [
-  // Понедельник
-  { id: 'l1', subjectId: 'db', weekday: 'monday', startTime: '09:00', endTime: '10:30', room: '312', kind: 'lecture', parity: 'all' },
-  { id: 'l2', subjectId: 'web', weekday: 'monday', startTime: '10:40', endTime: '12:10', room: '404', kind: 'lab', parity: 'all' },
-  { id: 'l3', subjectId: 'pe', weekday: 'monday', startTime: '12:40', endTime: '14:10', room: 'Спортзал', kind: 'practice', parity: 'all' },
-  // Вторник
-  { id: 'l4', subjectId: 'oop', weekday: 'tuesday', startTime: '09:00', endTime: '10:30', room: '310', kind: 'practice', parity: 'all' },
-  { id: 'l5', subjectId: 'math', weekday: 'tuesday', startTime: '10:40', endTime: '12:10', room: '201', kind: 'lecture', parity: 'all' },
-  { id: 'l6', subjectId: 'net', weekday: 'tuesday', startTime: '12:40', endTime: '14:10', room: '405', kind: 'lab', parity: 'all' },
-  // Среда
-  { id: 'l7', subjectId: 'is', weekday: 'wednesday', startTime: '10:40', endTime: '12:10', room: '310', kind: 'lecture', parity: 'all' },
-  { id: 'l8', subjectId: 'web', weekday: 'wednesday', startTime: '12:40', endTime: '14:10', room: '404', kind: 'practice', parity: 'all' },
-  { id: 'l9', subjectId: 'math', weekday: 'wednesday', startTime: '14:20', endTime: '15:50', room: '201', kind: 'practice', parity: 'even' },
-  // Четверг
-  { id: 'l10', subjectId: 'net', weekday: 'thursday', startTime: '09:00', endTime: '10:30', room: '201', kind: 'lecture', parity: 'all' },
-  { id: 'l11', subjectId: 'db', weekday: 'thursday', startTime: '10:40', endTime: '12:10', room: '312', kind: 'lab', parity: 'all' },
-  { id: 'l12', subjectId: 'oop', weekday: 'thursday', startTime: '12:40', endTime: '14:10', room: '310', kind: 'lecture', parity: 'all' },
-  // Пятница
-  { id: 'l13', subjectId: 'is', weekday: 'friday', startTime: '09:00', endTime: '10:30', room: '310', kind: 'practice', parity: 'all' },
-  { id: 'l14', subjectId: 'db', weekday: 'friday', startTime: '10:40', endTime: '12:10', room: '312', kind: 'practice', parity: 'odd' },
-  { id: 'l15', subjectId: 'pe', weekday: 'friday', startTime: '12:40', endTime: '14:10', room: 'Спортзал', kind: 'practice', parity: 'all' },
-  // Суббота
-  { id: 'l16', subjectId: 'is', weekday: 'saturday', startTime: '10:40', endTime: '12:10', room: '310', kind: 'practice', parity: 'all' },
+  // --- СЕССИЯ (по дням недели)
+  { id: 'l1', subjectId: 'db', weekday: 'monday', startTime: '09:00', endTime: '10:30', room: '312', kind: 'lecture', parity: 'all', mode: 'session' },
+  { id: 'l2', subjectId: 'web', weekday: 'monday', startTime: '10:40', endTime: '12:10', room: '404', kind: 'lab', parity: 'all', mode: 'session' },
+  { id: 'l3', subjectId: 'pe', weekday: 'monday', startTime: '12:40', endTime: '14:10', room: 'Спортзал', kind: 'practice', parity: 'all', mode: 'session' },
+  { id: 'l4', subjectId: 'oop', weekday: 'tuesday', startTime: '09:00', endTime: '10:30', room: '310', kind: 'practice', parity: 'all', mode: 'session' },
+  { id: 'l5', subjectId: 'math', weekday: 'tuesday', startTime: '10:40', endTime: '12:10', room: '201', kind: 'lecture', parity: 'all', mode: 'session' },
+  { id: 'l6', subjectId: 'net', weekday: 'tuesday', startTime: '12:40', endTime: '14:10', room: '405', kind: 'lab', parity: 'all', mode: 'session' },
+  { id: 'l7', subjectId: 'is', weekday: 'wednesday', startTime: '10:40', endTime: '12:10', room: '310', kind: 'lecture', parity: 'all', mode: 'session' },
+  { id: 'l8', subjectId: 'web', weekday: 'wednesday', startTime: '12:40', endTime: '14:10', room: '404', kind: 'practice', parity: 'all', mode: 'session' },
+  { id: 'l9', subjectId: 'math', weekday: 'wednesday', startTime: '14:20', endTime: '15:50', room: '201', kind: 'practice', parity: 'even', mode: 'session' },
+  { id: 'l10', subjectId: 'net', weekday: 'thursday', startTime: '09:00', endTime: '10:30', room: '201', kind: 'lecture', parity: 'all', mode: 'session' },
+  { id: 'l11', subjectId: 'db', weekday: 'thursday', startTime: '10:40', endTime: '12:10', room: '312', kind: 'lab', parity: 'all', mode: 'session' },
+  { id: 'l12', subjectId: 'oop', weekday: 'thursday', startTime: '12:40', endTime: '14:10', room: '310', kind: 'lecture', parity: 'all', mode: 'session' },
+  { id: 'l13', subjectId: 'is', weekday: 'friday', startTime: '09:00', endTime: '10:30', room: '310', kind: 'practice', parity: 'all', mode: 'session' },
+  { id: 'l14', subjectId: 'db', weekday: 'friday', startTime: '10:40', endTime: '12:10', room: '312', kind: 'practice', parity: 'odd', mode: 'session' },
+  { id: 'l15', subjectId: 'pe', weekday: 'friday', startTime: '12:40', endTime: '14:10', room: 'Спортзал', kind: 'practice', parity: 'all', mode: 'session' },
+  { id: 'l16', subjectId: 'is', weekday: 'saturday', startTime: '10:40', endTime: '12:10', room: '310', kind: 'practice', parity: 'all', mode: 'session' },
+
+  // --- ДИСТАНЦИОННЫЙ ПЕРИОД (по датам, вечерние вебинары)
+  { id: 'o1', subjectId: 'web', weekday: 'wednesday', startTime: '18:00', endTime: '19:30', room: 'Онлайн', kind: 'lecture', parity: 'all', mode: 'online', date: isoDaysFromNow(1) },
+  { id: 'o2', subjectId: 'db', weekday: 'thursday', startTime: '18:00', endTime: '19:30', room: 'Онлайн', kind: 'practice', parity: 'all', mode: 'online', date: isoDaysFromNow(3) },
+  { id: 'o3', subjectId: 'is', weekday: 'saturday', startTime: '11:00', endTime: '12:30', room: 'Онлайн', kind: 'lecture', parity: 'all', mode: 'online', date: isoDaysFromNow(8) },
 ];
 
 /**
@@ -81,6 +86,9 @@ const tasks: Task[] = [
     authorId: 2,
     authorName: 'Алексей П.',
     createdAt: new Date().toISOString(),
+    // Пример вложения: файл лежит в общем хранилище.
+    attachmentPath: 'db/example-method.pdf',
+    attachmentName: 'Методичка по нормализации.pdf',
   },
   {
     id: 't4',
@@ -93,6 +101,9 @@ const tasks: Task[] = [
     authorId: 1,
     authorName: 'Староста группы',
     createdAt: new Date().toISOString(),
+    // Пример вложения: файл лежит не у нас, а по ссылке.
+    attachmentLink: 'https://example.com/math-test-variant-3.pdf',
+    attachmentName: 'Вариант контрольной №3',
   },
   {
     id: 't5',
@@ -132,16 +143,39 @@ const tasks: Task[] = [
   },
 ];
 
+/** Учебные материалы по предметам: конспекты, методички, записи занятий. */
+const materials: Material[] = [
+  {
+    id: 'm1',
+    subjectId: 'db',
+    title: 'Методичка по нормализации (3НФ)',
+    description: 'Примеры приведения схемы к третьей нормальной форме.',
+    link: 'https://example.com/db-normalization-guide.pdf',
+    uploadedBy: 'Староста группы',
+    uploadedAt: new Date().toISOString(),
+  },
+  {
+    id: 'm2',
+    subjectId: 'web',
+    title: 'Запись вебинара: состояние и хуки в React',
+    description: 'Занятие дистанционного периода, 1 час 20 минут.',
+    link: 'https://example.com/react-hooks-recording',
+    uploadedBy: 'Мария К.',
+    uploadedAt: new Date().toISOString(),
+  },
+];
+
 /**
  * Собирает полный набор данных группы.
  * Функция (а не константа) нужна, чтобы каждый вызов возвращал СВЕЖУЮ копию:
  * иначе случайное изменение объекта в одном месте испортило бы данные везде.
  */
 export const createMockGroupData = (): GroupData => ({
-  version: 1,
+  version: 2,
   groupName: 'ИС-31',
   subjects: subjects.map((item) => ({ ...item })),
   lessons: lessons.map((item) => ({ ...item })),
   tasks: tasks.map((item) => ({ ...item })),
+  materials: materials.map((item) => ({ ...item })),
   updatedAt: new Date().toISOString(),
 });

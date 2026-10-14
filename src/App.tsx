@@ -2,6 +2,7 @@
 
 import { ScreenSpinner, Epic, SplitCol, SplitLayout, Tabbar, TabbarItem, View } from '@vkontakte/vkui';
 import {
+  Icon28BookOutline,
   Icon28CalendarOutline,
   Icon28ListCheckOutline,
   Icon28SettingsOutline,
@@ -13,16 +14,27 @@ import {
 } from '@vkontakte/vk-mini-apps-router';
 
 import { PANELS, PATHS, VIEWS } from './routes';
-import { LessonForm, Schedule, Settings, TaskForm, Tasks } from './panels';
+import {
+  LessonForm,
+  MaterialForm,
+  Materials,
+  Schedule,
+  Settings,
+  SubjectForm,
+  Subjects,
+  TaskForm,
+  Tasks,
+} from './panels';
 import { useAppData } from './store/useAppData';
 
 export const App = () => {
   // useActiveVkuiLocation сообщает, какая вкладка (view) сейчас открыта.
   const { view: activeView = VIEWS.SCHEDULE } = useActiveVkuiLocation();
-  // Во вкладке форм две панели — спрашиваем у роутера, какая из них активна.
+  // Во вкладках с несколькими экранами спрашиваем у роутера, какой из них активен.
+  const activeSettingsPanel = useGetPanelForView(VIEWS.SETTINGS);
   const activeFormPanel = useGetPanelForView(VIEWS.FORM);
   const routeNavigator = useRouteNavigator();
-  const { loading } = useAppData();
+  const { loading, materials } = useAppData();
 
   // Пока данные читаются из хранилища — показываем спиннер поверх интерфейса.
   const popout = loading ? <ScreenSpinner /> : null;
@@ -53,6 +65,15 @@ export const App = () => {
                   <Icon28ListCheckOutline />
                 </TabbarItem>
                 <TabbarItem
+                  selected={activeView === VIEWS.MATERIALS}
+                  onClick={() => routeNavigator.push(PATHS.MATERIALS)}
+                  label="Материалы"
+                  // Индикатор показывает, сколько материалов уже загружено группой.
+                  indicator={materials.length > 0 ? materials.length : undefined}
+                >
+                  <Icon28BookOutline />
+                </TabbarItem>
+                <TabbarItem
                   selected={activeView === VIEWS.SETTINGS}
                   onClick={() => routeNavigator.push(PATHS.SETTINGS)}
                   label="Настройки"
@@ -63,7 +84,7 @@ export const App = () => {
             ) : undefined
           }
         >
-          {/* У каждой вкладки ровно одна панель, поэтому activePanel задаём напрямую. */}
+          {/* У каждой вкладки ровно один экран, поэтому activePanel задаём напрямую. */}
           <View nav={VIEWS.SCHEDULE} activePanel={PANELS.SCHEDULE}>
             <Schedule nav={PANELS.SCHEDULE} />
           </View>
@@ -72,14 +93,22 @@ export const App = () => {
             <Tasks nav={PANELS.TASKS} />
           </View>
 
-          <View nav={VIEWS.SETTINGS} activePanel={PANELS.SETTINGS}>
+          <View nav={VIEWS.MATERIALS} activePanel={PANELS.MATERIALS}>
+            <Materials nav={PANELS.MATERIALS} />
+          </View>
+
+          {/* Вкладка настроек: активный экран выбирает роутер (настройки или предметы). */}
+          <View nav={VIEWS.SETTINGS} activePanel={activeSettingsPanel ?? PANELS.SETTINGS}>
             <Settings nav={PANELS.SETTINGS} />
+            <Subjects nav={PANELS.SUBJECTS} />
           </View>
 
           {/* Вкладка форм: активную панель выбирает роутер по адресу. */}
           <View nav={VIEWS.FORM} activePanel={activeFormPanel ?? PANELS.TASK_FORM}>
             <TaskForm nav={PANELS.TASK_FORM} />
             <LessonForm nav={PANELS.LESSON_FORM} />
+            <MaterialForm nav={PANELS.MATERIAL_FORM} />
+            <SubjectForm nav={PANELS.SUBJECT_FORM} />
           </View>
         </Epic>
       </SplitCol>

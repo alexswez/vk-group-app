@@ -1,10 +1,11 @@
 // Карточка задания: срок, статус, автор и действия.
 
 import { useState } from 'react';
-import { Button, Card, Div, IconButton } from '@vkontakte/vkui';
-import { Icon28DeleteOutline, Icon28EditOutline } from '@vkontakte/icons';
+import { Button, Card, Div, IconButton, Link } from '@vkontakte/vkui';
+import { Icon28AttachOutline, Icon28DeleteOutline, Icon28EditOutline } from '@vkontakte/icons';
 
 import { Subject, Task, TaskStatus } from '../types';
+import { materialUrl, supportsFileUpload } from '../storage/api';
 import { TASK_KIND_LABEL, daysLeft, formatDate, formatDaysLeft } from '../utils/format';
 import { subjectColor } from '../utils/subjectColor';
 
@@ -60,6 +61,26 @@ export const TaskCard = ({ task, subject, onEdit, onDelete, onChangeStatus }: Ta
 
           {task.description && (
             <div style={{ marginTop: 6, fontSize: 14 }}>{task.description}</div>
+          )}
+
+          {/* Вложение: ссылка на файл (в облаке) или внешняя ссылка. */}
+          {(task.attachmentPath || task.attachmentLink) && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Icon28AttachOutline height={16} width={16} />
+              {(() => {
+                const href =
+                  task.attachmentLink ??
+                  (task.attachmentPath && supportsFileUpload() ? materialUrl(task.attachmentPath) : undefined);
+
+                return href ? (
+                  <Link href={href} target="_blank">
+                    {task.attachmentName ?? 'Вложение'}
+                  </Link>
+                ) : (
+                  <span style={{ fontSize: 14 }}>{task.attachmentName ?? 'Вложение'}</span>
+                );
+              })()}
+            </div>
           )}
 
           <div style={{ marginTop: 6, fontSize: 13, color: 'var(--vkui--color_text_subhead)' }}>

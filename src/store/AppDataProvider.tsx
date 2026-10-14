@@ -8,25 +8,32 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import bridge, { UserInfo } from '@vkontakte/vk-bridge';
 
-import { GroupData, Lesson, Task, TaskStatus, UserPrefs } from '../types';
+import { GroupData, Lesson, Material, Subject, Task, TaskStatus, UserPrefs } from '../types';
 import { createMockGroupData } from '../data/mockData';
 import { loadGroupData, resetGroupData, saveGroupData } from '../storage/groupDataStorage';
+import { normalizeGroupData } from '../storage/normalize';
 import { DEFAULT_PREFS, loadUserPrefs, saveUserPrefs } from '../storage/userPrefs';
 import {
   apiCreateLesson,
+  apiCreateMaterial,
+  apiCreateSubject,
   apiCreateTask,
   apiDeleteLesson,
+  apiDeleteMaterial,
+  apiDeleteSubject,
   apiDeleteTask,
   apiGetGroup,
   apiPatchTask,
   apiSetGroupName,
   apiUpdateLesson,
+  apiUpdateMaterial,
+  apiUpdateSubject,
   apiUpdateTask,
   canReachServer,
   checkServer,
   isServerAvailable,
 } from '../storage/api';
-import { AppDataContext, LessonInput, TaskInput } from './context';
+import { AppDataContext, LessonInput, MaterialInput, SubjectInput, TaskInput } from './context';
 
 /** Генератор уникальных идентификаторов для локального (оптимистичного) обновления. */
 const makeId = (prefix: string): string =>
@@ -41,6 +48,8 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserInfo | undefined>(undefined);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+  const [editingMaterialId, setEditingMaterialId] = useState<string | null>(null);
+  const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
 
   /**
    * Ссылка на самые свежие данные.
@@ -101,7 +110,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
 
       if (serverCall && isServerAvailable()) {
         try {
-          const fromServer = await serverCall();
+          const fromServer = normalizeGroupData(await serverCall());
           groupRef.current = fromServer;
           setGroup(fromServer);
           // Сервер ответил — значит общий режим действительно работает.
@@ -110,7 +119,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
         } catch {
           // Запрос не прошёл. Пробуем взять актуальную версию данных с сервера.
           try {
-            const fromServer = await apiGetGroup();
+            const fromServer = normalizeGroupData(await apiGetGroup());
             groupRef.current = fromServer;
             setGroup(fromServer);
             setServerMode(true);
@@ -141,6 +150,10 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
         authorId: user?.id,
         authorName,
         createdAt: new Date().toISOString(),
+        // Вложение (файл или ссылка) — если пользователь его добавил в форме.
+        attachmentPath: input.attachmentPath,
+        attachmentName: input.attachmentName,
+        attachmentLink: input.attachmentLink,
       };
 
       await mutate(
@@ -168,6 +181,9 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
                   kind: input.kind,
                   dueDate: input.dueDate,
                   status: input.status ?? task.status,
+                  attachmentPath: input.attachmentPath,
+                  attachmentName: input.attachmentName,
+                  attachmentLink: input.attachmentLink,
                 }
               : task,
           ),
@@ -235,6 +251,120 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     [mutate],
   );
 
+  // ---------------------------------------------------------------- ПРЕДМЕТЫ
+
+  const addSubject = useCallback(
+    async (input: SubjectInput) => {
+      // Код предмета формируем здесь: он связывает предмет с парами, заданиями и материалами.
+      const id = makeId('subject');
+      const subject: Subject = {
+        id,
+        title: input.title.trim(),
+        short: input.short.trim() || input.title.trim().slice(0, 6),
+        teacher: input.teacher.trim(),
+      };
+
+      await mutate(
+        (current) => ({ ...current, subjects: [...current.subjects, subject] }),
+        () => apiCreateSubject(id, input),
+      );
+    },
+    [mutate],
+  );
+
+  const updateSubject = useCallback(
+    async (id: string, input: SubjectInput) => {
+      await mutate(
+        (current) => ({
+          ...current,
+          subjects: current.subjects.map((subject) =>
+            subject.id === id
+              ? {
+                  ...subject,
+                  title: input.title.trim(),
+                  short: input.short.trim() || input.title.trim().slice(0, 6),
+                  teacher: input.teacher.trim(),
+                }
+              : subject,
+          ),
+        }),
+        () => apiUpdateSubject(id, input),
+      );
+    },
+    [mutate],
+  );
+
+  const deleteSubject = useCallback(
+    async (id: string) => {
+      await mutate(
+        (current) => ({ ...current, subjects: current.subjects.filter((subject) => subject.id !== id) }),
+        () => apiDeleteSubject(id),
+      );
+    },
+    [mutate],
+  );
+
+  // ---------------------------------------------------------------- МАТЕРИАЛЫ
+
+  const addMaterial = useCallback(
+    async (input: MaterialInput) => {
+      const id = makeId('material');
+      const material: Material = {
+        id,
+        subjectId: input.subjectId,
+        title: input.title.trim(),
+        description: input.description.trim(),
+        link: input.link?.trim() || undefined,
+        uploadedBy: authorName,
+        uploadedAt: new Date().toISOString(),
+      };
+
+      // Файл (если выбран) загружает драйвер хранилища, а в состояние он попадёт
+      // после ответа сервера — там уже будет настоящий путь и размер файла.
+      await mutate(
+        (current) => ({ ...current, materials: [material, ...current.materials] }),
+        () => apiCreateMaterial(id, input, authorName),
+      );
+    },
+    [mutate, authorName],
+  );
+
+  const updateMaterial = useCallback(
+    async (id: string, input: MaterialInput) => {
+      await mutate(
+        (current) => ({
+          ...current,
+          materials: current.materials.map((material) =>
+            material.id === id
+              ? {
+                  ...material,
+                  subjectId: input.subjectId,
+                  title: input.title.trim(),
+                  description: input.description.trim(),
+                  link: input.link?.trim() || undefined,
+                }
+              : material,
+          ),
+        }),
+        () => apiUpdateMaterial(id, input),
+      );
+    },
+    [mutate],
+  );
+
+  const deleteMaterial = useCallback(
+    async (id: string) => {
+      // Путь к файлу нужен, чтобы удалить и сам файл из хранилища.
+      const material = groupRef.current.materials.find((item) => item.id === id);
+
+      await mutate(
+        (current) => ({ ...current, materials: current.materials.filter((item) => item.id !== id) }),
+        () => apiDeleteMaterial(id, material?.filePath),
+      );
+    },
+    [mutate],
+  );
+
   const setGroupName = useCallback(
     async (name: string) => {
       await mutate(
@@ -281,7 +411,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      const fresh = await apiGetGroup();
+      const fresh = normalizeGroupData(await apiGetGroup());
       groupRef.current = fresh;
       setGroup(fresh);
       setServerMode(true);
@@ -340,12 +470,17 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       subjects: group.subjects,
       lessons: group.lessons,
       tasks: group.tasks,
+      materials: group.materials,
       prefs,
       user,
       editingTaskId,
       editingLessonId,
+      editingMaterialId,
+      editingSubjectId,
       startTaskEditing: setEditingTaskId,
       startLessonEditing: setEditingLessonId,
+      startMaterialEditing: setEditingMaterialId,
+      startSubjectEditing: setEditingSubjectId,
       addTask,
       updateTask,
       patchTask,
@@ -353,6 +488,12 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       addLesson,
       updateLesson,
       deleteLesson,
+      addSubject,
+      updateSubject,
+      deleteSubject,
+      addMaterial,
+      updateMaterial,
+      deleteMaterial,
       setGroupName,
       patchPrefs,
       resetToMock,
@@ -366,6 +507,8 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       user,
       editingTaskId,
       editingLessonId,
+      editingMaterialId,
+      editingSubjectId,
       addTask,
       updateTask,
       patchTask,
@@ -373,6 +516,12 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       addLesson,
       updateLesson,
       deleteLesson,
+      addSubject,
+      updateSubject,
+      deleteSubject,
+      addMaterial,
+      updateMaterial,
+      deleteMaterial,
       setGroupName,
       patchPrefs,
       resetToMock,

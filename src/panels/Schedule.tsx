@@ -1,4 +1,9 @@
 // Экран «Расписание»: выбор дня недели и список пар.
+//
+// Учитывает очно-заочную форму обучения: переключатель периода сверху.
+//   • «Сессия»       — обычная недельная сетка (занятия идут очно);
+//   • «Дистанционно» — список занятий по датам (вебинары), потому что они
+//                      не повторяются каждую неделю.
 
 import { useMemo, useState } from 'react';
 import {
@@ -20,8 +25,15 @@ import { useRouteNavigator } from '@vkontakte/vk-mini-apps-router';
 import { AddLessonButton, LessonCard } from '../components/LessonCard';
 import { PATHS } from '../routes';
 import { useAppData } from '../store/useAppData';
-import { Weekday } from '../types';
-import { WEEKDAYS, formatDaySchedule, todayWeekdayIndex } from '../utils/format';
+import { LessonMode, Weekday } from '../types';
+import {
+  WEEKDAYS,
+  formatDate,
+  formatDaySchedule,
+  formatOnlineSchedule,
+  todayIso,
+  todayWeekdayIndex,
+} from '../utils/format';
 import { copyToClipboard, getAppLink, shareLink } from '../utils/share';
 
 /** Переводит "09:40" в минуты от начала суток — так время удобно сравнивать между собой. */
@@ -30,11 +42,18 @@ const timeToMinutes = (time: string): number => {
   return hours * 60 + minutes;
 };
 
+const PERIOD_OPTIONS: { value: LessonMode; label: string; hint: string }[] = [
+  { value: 'session', label: 'Сессия', hint: 'занятия очно, по дням недели' },
+  { value: 'online', label: 'Дистанционно', hint: 'занятия по датам (вебинары)' },
+];
+
 export const Schedule = ({ nav }: NavIdProps) => {
   const { lessons, subjects, group, prefs, deleteLesson, startLessonEditing } = useAppData();
   const routeNavigator = useRouteNavigator();
 
   const todayIndex = todayWeekdayIndex();
+  /** Период обучения: сессия или дистанционный. */
+  const [period, setPeriod] = useState<LessonMode>('session');
   // По умолчанию открываем сегодняшний день, а если сегодня воскресенье — понедельник.
   const [day, setDay] = useState<Weekday>(WEEKDAYS[todayIndex === -1 ? 0 : todayIndex].id);
   const [editable, setEditable] = useState(false);
@@ -46,10 +65,11 @@ export const Schedule = ({ nav }: NavIdProps) => {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const selectedIsToday = WEEKDAYS.findIndex((item) => item.id === day) === todayIndex;
 
+  /** Занятия сессии: недельная сетка. */
   const dayLessons = useMemo(
     () =>
       lessons
-        .filter((lesson) => lesson.weekday === day)
+        .filter((lesson) => (lesson.mode ?? 'session') === 'session' && lesson.weekday === day)
         // Прошедшие пары можно скрывать — настройка личная, хранится в VK Storage.
         .filter((lesson) =>
           prefs.showPastLessons || !selectedIsToday ? true : timeToMinutes(lesson.endTime) >= nowMinutes,
@@ -58,10 +78,24 @@ export const Schedule = ({ nav }: NavIdProps) => {
     [lessons, day, prefs.showPastLessons, selectedIsToday, nowMinutes],
   );
 
+  /** Дистанционные занятия: идут по датам, поэтому сортируем по дате и времени. */
+  const onlineLessons = useMemo(
+    () =>
+      lessons
+        .filter((lesson) => lesson.mode === 'online' && lesson.date)
+        .filter((lesson) => prefs.showPastLessons || (lesson.date ?? '') >= todayIso())
+        .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`)),
+    [lessons, prefs.showPastLessons],
+  );
+
+  const visibleLessons = period === 'session' ? dayLessons : onlineLessons;
+
   const deletingLesson = deletingId ? lessons.find((lesson) => lesson.id === deletingId) : undefined;
   const deletingSubject = deletingLesson
     ? subjects.find((subject) => subject.id === deletingLesson.subjectId)
     : undefined;
+
+  const findSubject = (subjectId: string) => subjects.find((subject) => subject.id === subjectId);
 
   const goToForm = (lessonId: string | null) => {
     startLessonEditing(lessonId);
@@ -70,8 +104,8 @@ export const Schedule = ({ nav }: NavIdProps) => {
 
   /** Делимся ссылкой на расписание — её можно отправить в беседу группы. */
   const handleShare = async () => {
-    const dayLabel = WEEKDAYS.find((item) => item.id === day)?.label ?? '';
-    setShareMessage(await shareLink(PATHS.SCHEDULE, `Расписание группы ${group.groupName} (${dayLabel}):`));
+    const periodLabel = period === 'session' ? 'сессия' : 'дистанционные занятия';
+    setShareMessage(await shareLink(PATHS.SCHEDULE, `Расписание группы ${group.groupName} (${periodLabel}):`));
   };
 
   /**
@@ -80,16 +114,19 @@ export const Schedule = ({ nav }: NavIdProps) => {
    * не открывая приложение (иногда это удобнее ссылки).
    */
   const handleCopyText = async () => {
-    const dayLabel = WEEKDAYS.find((item) => item.id === day)?.label ?? '';
-    const text = [
-      formatDaySchedule(group.groupName, dayLabel, dayLessons, (subjectId) =>
-        subjects.find((subject) => subject.id === subjectId),
-      ),
-      '',
-      `Открыть приложение: ${getAppLink(PATHS.SCHEDULE)}`,
-    ].join('\n');
+    const text =
+      period === 'session'
+        ? formatDaySchedule(
+            group.groupName,
+            WEEKDAYS.find((item) => item.id === day)?.label ?? '',
+            dayLessons,
+            findSubject,
+          )
+        : formatOnlineSchedule(group.groupName, onlineLessons, findSubject);
 
-    setShareMessage(await copyToClipboard(text));
+    setShareMessage(
+      await copyToClipboard([text, '', `Открыть приложение: ${getAppLink(PATHS.SCHEDULE)}`].join('\n')),
+    );
   };
 
   return (
@@ -105,14 +142,32 @@ export const Schedule = ({ nav }: NavIdProps) => {
         </Div>
       </Group>
 
-      {/* Переключатель дней недели. */}
+      {/* Период обучения — главное отличие очно-заочной формы. */}
       <Tabs>
-        {WEEKDAYS.map((item) => (
-          <TabsItem key={item.id} selected={day === item.id} onClick={() => setDay(item.id)}>
-            {item.short}
+        {PERIOD_OPTIONS.map((option) => (
+          <TabsItem
+            key={option.value}
+            selected={period === option.value}
+            onClick={() => setPeriod(option.value)}
+          >
+            {option.label}
           </TabsItem>
         ))}
       </Tabs>
+      <Div style={{ fontSize: 13, color: 'var(--vkui--color_text_secondary)' }}>
+        {PERIOD_OPTIONS.find((option) => option.value === period)?.hint}
+      </Div>
+
+      {/* Переключатель дней нужен только для занятий сессии. */}
+      {period === 'session' && (
+        <Tabs>
+          {WEEKDAYS.map((item) => (
+            <TabsItem key={item.id} selected={day === item.id} onClick={() => setDay(item.id)}>
+              {item.short}
+            </TabsItem>
+          ))}
+        </Tabs>
+      )}
 
       {/* Кнопка «Поделиться»: отправляет ссылку на приложение в беседу группы. */}
       <Group>
@@ -157,26 +212,45 @@ export const Schedule = ({ nav }: NavIdProps) => {
         </Group>
       )}
 
-      <Group header={<Header size="s">{WEEKDAYS.find((item) => item.id === day)?.label}</Header>}>
-        {dayLessons.length === 0 ? (
-          <Placeholder icon={<Icon56CalendarOutline />} title="Пар нет">
-            В этот день занятий нет. Можно добавить пару кнопкой ниже.
+      <Group
+        header={
+          <Header size="s">
+            {period === 'session'
+              ? WEEKDAYS.find((item) => item.id === day)?.label
+              : 'Ближайшие дистанционные занятия'}
+          </Header>
+        }
+      >
+        {visibleLessons.length === 0 ? (
+          <Placeholder icon={<Icon56CalendarOutline />} title="Занятий нет">
+            {period === 'session'
+              ? 'В этот день занятий нет. Можно добавить пару кнопкой ниже.'
+              : 'Дистанционные занятия не назначены. Добавьте занятие с датой — например, вебинар.'}
           </Placeholder>
         ) : (
           <Div>
-            {dayLessons.map((lesson) => {
-              const subject = subjects.find((item) => item.id === lesson.subjectId);
+            {visibleLessons.map((lesson) => {
               const isNow =
+                period === 'session' &&
                 selectedIsToday &&
                 nowMinutes >= timeToMinutes(lesson.startTime) &&
                 nowMinutes <= timeToMinutes(lesson.endTime);
+
+              // Для дистанционных занятий подписываем дату: «15.10.2026 (Ср)».
+              const dateLabel =
+                period === 'online' && lesson.date
+                  ? `${formatDate(lesson.date)} (${
+                      WEEKDAYS.find((item) => item.id === lesson.weekday)?.short ?? ''
+                    })`
+                  : undefined;
 
               return (
                 <LessonCard
                   key={lesson.id}
                   lesson={lesson}
-                  subject={subject}
+                  subject={findSubject(lesson.subjectId)}
                   isNow={isNow}
+                  dateLabel={dateLabel}
                   editable={editable}
                   onEdit={() => goToForm(lesson.id)}
                   onDelete={() => setDeletingId(lesson.id)}

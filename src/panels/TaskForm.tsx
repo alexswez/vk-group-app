@@ -1,7 +1,7 @@
 // Экран-форма задания: используется и для создания, и для редактирования.
 // Какое именно действие — определяет editingTaskId из общего состояния приложения.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Button,
   Div,
@@ -14,12 +14,14 @@ import {
   PanelHeader,
   Textarea,
 } from '@vkontakte/vkui';
+import { Icon28AttachOutline } from '@vkontakte/icons';
 import { useRouteNavigator } from '@vkontakte/vk-mini-apps-router';
 
 import { PATHS } from '../routes';
 import { useAppData } from '../store/useAppData';
+import { supportsFileUpload, uploadTaskFile } from '../storage/api';
 import { TaskKind, TaskStatus } from '../types';
-import { TASK_KIND_LABEL, isoDaysFromNow } from '../utils/format';
+import { TASK_KIND_LABEL, formatFileSize, isoDaysFromNow } from '../utils/format';
 
 /** Варианты вида задания и статуса — рисуем «кнопками-чипсами». */
 const KIND_OPTIONS: TaskKind[] = ['homework', 'lab', 'coursework', 'test', 'essay'];
@@ -44,7 +46,14 @@ export const TaskForm = ({ nav }: NavIdProps) => {
   const [kind, setKind] = useState<TaskKind>('homework');
   const [dueDate, setDueDate] = useState(isoDaysFromNow(7));
   const [status, setStatus] = useState<TaskStatus>('todo');
+  /** Выбранный файл-вложение (загрузим его при сохранении). */
+  const [file, setFile] = useState<File | undefined>(undefined);
+  /** Внешняя ссылка на файл, если он лежит не у нас. */
+  const [link, setLink] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const canUploadFiles = supportsFileUpload();
 
   // Когда открываем форму для конкретного задания — заполняем поля его данными.
   useEffect(() => {
@@ -55,6 +64,7 @@ export const TaskForm = ({ nav }: NavIdProps) => {
       setKind(editingTask.kind);
       setDueDate(editingTask.dueDate);
       setStatus(editingTask.status);
+      setLink(editingTask.attachmentLink ?? '');
     } else {
       setTitle('');
       setDescription('');
@@ -62,7 +72,9 @@ export const TaskForm = ({ nav }: NavIdProps) => {
       setKind('homework');
       setDueDate(isoDaysFromNow(7));
       setStatus('todo');
+      setLink('');
     }
+    setFile(undefined);
     setError(null);
   }, [editingTask, subjects]);
 
@@ -81,7 +93,38 @@ export const TaskForm = ({ nav }: NavIdProps) => {
       return;
     }
 
-    const payload = { subjectId, title, description, kind, dueDate, status };
+    // Вложение: если пользователь выбрал файл — сначала загружаем его в хранилище,
+    // и только потом сохраняем задание (чтобы не осталось задания без файла).
+    let attachmentPath = editingTask?.attachmentPath;
+    let attachmentName = editingTask?.attachmentName;
+
+    if (file) {
+      if (!canUploadFiles) {
+        setError('Загрузка файлов доступна только в облачном режиме — укажите ссылку.');
+        return;
+      }
+      try {
+        // Ключ нужен только для имени файла в хранилище.
+        const uploaded = await uploadTaskFile(`task_${Date.now().toString(36)}`, file);
+        attachmentPath = uploaded.path;
+        attachmentName = uploaded.name;
+      } catch {
+        setError('Не удалось загрузить файл. Попробуйте ещё раз или укажите ссылку.');
+        return;
+      }
+    }
+
+    const payload = {
+      subjectId,
+      title,
+      description,
+      kind,
+      dueDate,
+      status,
+      attachmentPath,
+      attachmentName,
+      attachmentLink: link.trim() || undefined,
+    };
 
     if (editingTask) {
       await updateTask(editingTask.id, payload);
@@ -160,6 +203,48 @@ export const TaskForm = ({ nav }: NavIdProps) => {
             ))}
           </Div>
         </FormItem>
+
+      {/* Вложение к заданию: файл в общем хранилище или ссылка. */}
+      <Group header={<Header size="s">Вложение</Header>}>
+        {canUploadFiles ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              style={{ display: 'none' }}
+              onChange={(event) => setFile(event.target.files?.[0])}
+            />
+            <Div>
+              <Button
+                size="m"
+                mode="secondary"
+                before={<Icon28AttachOutline />}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {file ? 'Выбрать другой файл' : 'Прикрепить файл'}
+              </Button>
+              {file && (
+                <div style={{ marginTop: 8, fontSize: 14 }}>
+                  {file.name} · {formatFileSize(file.size)}
+                </div>
+              )}
+              {editingTask?.attachmentName && !file && (
+                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--vkui--color_text_secondary)' }}>
+                  Сейчас прикреплён файл: {editingTask.attachmentName}
+                </div>
+              )}
+            </Div>
+          </>
+        ) : (
+          <Div style={{ fontSize: 13, color: 'var(--vkui--color_text_secondary)' }}>
+            Загрузка файлов работает в облачном режиме. Сейчас можно указать ссылку на файл.
+          </Div>
+        )}
+
+        <FormItem top="Ссылка на файл (если он лежит не у нас)">
+          <Input value={link} onChange={(event) => setLink(event.target.value)} placeholder="https://..." />
+        </FormItem>
+      </Group>
 
         {/* Сообщение об ошибке валидации. */}
         {error && (

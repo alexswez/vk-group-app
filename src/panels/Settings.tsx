@@ -16,7 +16,9 @@ import {
   SimpleCell,
   Switch,
 } from '@vkontakte/vkui';
+import { useRouteNavigator } from '@vkontakte/vk-mini-apps-router';
 
+import { PATHS } from '../routes';
 import { useAppData } from '../store/useAppData';
 import { describeSource } from '../storage/api';
 import { formatDate } from '../utils/format';
@@ -24,6 +26,7 @@ import { formatDate } from '../utils/format';
 export const Settings = ({ nav }: NavIdProps) => {
   const { group, tasks, lessons, subjects, prefs, user, serverMode, setGroupName, patchPrefs, resetToMock, refresh } =
     useAppData();
+  const routeNavigator = useRouteNavigator();
   const [groupName, setLocalGroupName] = useState(group.groupName);
   /** Показывать ли подтверждение полного сброса данных группы. */
   const [confirmReset, setConfirmReset] = useState(false);
@@ -57,6 +60,11 @@ export const Settings = ({ nav }: NavIdProps) => {
         <Div>
           <Button size="m" mode="primary" onClick={() => void setGroupName(groupName)}>
             Сохранить название
+          </Button>
+        </Div>
+        <Div>
+          <Button stretched size="m" mode="secondary" onClick={() => routeNavigator.push(PATHS.SUBJECTS)}>
+            Предметы и преподаватели
           </Button>
         </Div>
       </Group>

@@ -12,12 +12,17 @@
 // функция либо возвращает данные, либо бросает ошибку — а вызывающий код решает, что делать.
 
 import { GroupData, Task, TaskStatus } from '../types';
-import { LessonInput, TaskInput } from '../store/context';
+import { LessonInput, MaterialInput, SubjectInput, TaskInput } from '../store/context';
 import {
   isSupabaseConfigured,
+  materialFileUrl,
   supabaseCreateLesson,
+  supabaseCreateMaterial,
+  supabaseCreateSubject,
   supabaseCreateTask,
   supabaseDeleteLesson,
+  supabaseDeleteMaterial,
+  supabaseDeleteSubject,
   supabaseDeleteTask,
   supabaseGetGroup,
   supabasePatchTask,
@@ -25,7 +30,10 @@ import {
   supabaseReset,
   supabaseSetGroupName,
   supabaseUpdateLesson,
+  supabaseUpdateMaterial,
+  supabaseUpdateSubject,
   supabaseUpdateTask,
+  uploadTaskAttachment,
 } from './supabase';
 
 /**
@@ -178,3 +186,73 @@ export const apiSetGroupName = (groupName: string): Promise<GroupData> =>
 
 export const apiReset = (): Promise<GroupData> =>
   isSupabaseConfigured() ? supabaseReset() : request<GroupData>('/api/reset', { method: 'POST' });
+
+// ---------------------------------------------------------------- ПРЕДМЕТЫ
+
+export const apiCreateSubject = (id: string, input: SubjectInput): Promise<GroupData> =>
+  isSupabaseConfigured()
+    ? supabaseCreateSubject(id, input)
+    : request<GroupData>('/api/subjects', { method: 'POST', body: JSON.stringify({ id, ...input }) });
+
+export const apiUpdateSubject = (id: string, input: SubjectInput): Promise<GroupData> =>
+  isSupabaseConfigured()
+    ? supabaseUpdateSubject(id, input)
+    : request<GroupData>(`/api/subjects/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+
+export const apiDeleteSubject = (id: string): Promise<GroupData> =>
+  isSupabaseConfigured()
+    ? supabaseDeleteSubject(id)
+    : request<GroupData>(`/api/subjects/${id}`, { method: 'DELETE' });
+
+// ---------------------------------------------------------------- МАТЕРИАЛЫ И ФАЙЛЫ
+
+/**
+ * Поддерживается ли загрузка файлов.
+ * Файлы может принимать только облачное хранилище: наш локальный сервер их не хранит
+ * (в локальном режиме материалы добавляются ссылками).
+ */
+export const supportsFileUpload = (): boolean => isSupabaseConfigured();
+
+export const apiCreateMaterial = (
+  id: string,
+  input: MaterialInput,
+  uploadedBy?: string,
+): Promise<GroupData> =>
+  isSupabaseConfigured()
+    ? supabaseCreateMaterial(id, input, uploadedBy)
+    : request<GroupData>('/api/materials', {
+        method: 'POST',
+        body: JSON.stringify({
+          id,
+          subjectId: input.subjectId,
+          title: input.title,
+          description: input.description,
+          link: input.link,
+          uploadedBy,
+        }),
+      });
+
+export const apiUpdateMaterial = (id: string, input: MaterialInput): Promise<GroupData> =>
+  isSupabaseConfigured()
+    ? supabaseUpdateMaterial(id, input)
+    : request<GroupData>(`/api/materials/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          subjectId: input.subjectId,
+          title: input.title,
+          description: input.description,
+          link: input.link,
+        }),
+      });
+
+export const apiDeleteMaterial = (id: string, filePath?: string): Promise<GroupData> =>
+  isSupabaseConfigured()
+    ? supabaseDeleteMaterial(id, filePath)
+    : request<GroupData>(`/api/materials/${id}`, { method: 'DELETE' });
+
+/** Публичная ссылка на файл материала (работает в облачном режиме). */
+export const materialUrl = (filePath: string): string => materialFileUrl(filePath);
+
+/** Загрузка файла-вложения к заданию (работает в облачном режиме). */
+export const uploadTaskFile = (taskId: string, file: File): Promise<{ path: string; name: string }> =>
+  uploadTaskAttachment(taskId, file);

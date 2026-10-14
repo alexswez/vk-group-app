@@ -3,7 +3,7 @@
 // Все функции асинхронные, потому что PostgreSQL отвечает по сети. Код одинаково
 // работает и с PostgreSQL, и с SQLite — за это отвечает модуль database.js.
 
-import { execScript, execute, query, queryOne } from './database.js';
+import { dbKind, execScript, execute, query, queryOne } from './database.js';
 import { seedGroupName, seedLessons, seedSubjects, seedTasks } from './seed.js';
 
 /** Создаёт таблицы, если их ещё нет (можно вызывать при каждом запуске). */
@@ -24,7 +24,11 @@ export const initSchema = async () => {
       end_time   TEXT NOT NULL,
       room       TEXT NOT NULL DEFAULT '',
       kind       TEXT NOT NULL,
-      parity     TEXT NOT NULL DEFAULT 'all'
+      parity     TEXT NOT NULL DEFAULT 'all',
+      -- Период обучения: 'session' — занятия по дням недели, 'online' — по конкретным датам.
+      mode       TEXT NOT NULL DEFAULT 'session',
+      -- Дата занятия: заполняется только для дистанционного периода ('online').
+      lesson_date TEXT
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
@@ -37,7 +41,26 @@ export const initSchema = async () => {
       status      TEXT NOT NULL DEFAULT 'todo',
       author_id   INTEGER,
       author_name TEXT,
-      created_at  TEXT NOT NULL
+      created_at  TEXT NOT NULL,
+      -- Вложение: путь к файлу, его исходное имя и/или внешняя ссылка.
+      attachment_path TEXT,
+      attachment_name TEXT,
+      attachment_link TEXT
+    );
+
+    -- Учебные материалы по предметам: конспекты, методички, презентации, записи занятий.
+    -- Файлы наш сервер не хранит: здесь только метаданные и внешняя ссылка.
+    CREATE TABLE IF NOT EXISTS materials (
+      id          TEXT PRIMARY KEY,
+      subject_id  TEXT NOT NULL REFERENCES subjects(id),
+      title       TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      file_path   TEXT,
+      file_name   TEXT,
+      file_size   INTEGER,
+      link        TEXT,
+      uploaded_by TEXT,
+      uploaded_at TEXT NOT NULL
     );
 
     -- Таблица «ключ-значение» для общих настроек: название группы, версия, время изменения.
@@ -46,6 +69,44 @@ export const initSchema = async () => {
       value TEXT NOT NULL
     );
   `);
+
+  // --- Обновление уже существующих баз ---
+  // CREATE TABLE IF NOT EXISTS не меняет таблицу, которая была создана прошлой версией
+  // сервера, поэтому новые колонки добавляем отдельно.
+  await addColumnIfMissing('lessons', 'mode', "mode TEXT NOT NULL DEFAULT 'session'");
+  await addColumnIfMissing('lessons', 'lesson_date', 'lesson_date TEXT');
+  await addColumnIfMissing('tasks', 'attachment_path', 'attachment_path TEXT');
+  await addColumnIfMissing('tasks', 'attachment_name', 'attachment_name TEXT');
+  await addColumnIfMissing('tasks', 'attachment_link', 'attachment_link TEXT');
+};
+
+/** Список колонок таблицы: у SQLite и PostgreSQL это делается по-разному. */
+const tableColumns = async (table) => {
+  if (dbKind === 'postgres') {
+    // information_schema есть и в настоящем PostgreSQL, и в его эмуляторе pg-mem.
+    const rows = await query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = ?`,
+      [table],
+    );
+    return rows.map((row) => row.column_name);
+  }
+
+  const rows = await query(`PRAGMA table_info(${table})`);
+  return rows.map((row) => row.name);
+};
+
+/**
+ * Добавляет колонку, если её ещё нет.
+ *
+ * Почему не «ALTER TABLE … ADD COLUMN IF NOT EXISTS»: эту конструкцию понимает PostgreSQL,
+ * но не понимает SQLite, а сервер работает и с ним тоже. Поэтому сначала смотрим список
+ * колонок и выполняем ALTER только тогда, когда колонки действительно нет.
+ */
+const addColumnIfMissing = async (table, column, definition) => {
+  const columns = await tableColumns(table);
+  if (columns.includes(column)) return;
+  await execScript(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
 };
 
 /** Читает одно значение из meta. */
@@ -79,6 +140,10 @@ const mapLesson = (row) => ({
   room: row.room,
   kind: row.kind,
   parity: row.parity,
+  // Старые записи (до обновления схемы) поля mode не имеют — считаем их занятиями сессии.
+  mode: row.mode ?? 'session',
+  // Дата есть только у дистанционных занятий: если её нет, поля в ответе не будет вовсе.
+  date: row.lesson_date ?? undefined,
 });
 
 const mapTask = (row) => ({
@@ -92,6 +157,23 @@ const mapTask = (row) => ({
   authorId: row.author_id ?? undefined,
   authorName: row.author_name ?? undefined,
   createdAt: row.created_at,
+  // Вложение: NULL в базе означает «вложения нет» — тогда поля в ответе не будет.
+  attachmentPath: row.attachment_path ?? undefined,
+  attachmentName: row.attachment_name ?? undefined,
+  attachmentLink: row.attachment_link ?? undefined,
+});
+
+const mapMaterial = (row) => ({
+  id: row.id,
+  subjectId: row.subject_id,
+  title: row.title,
+  description: row.description,
+  filePath: row.file_path ?? undefined,
+  fileName: row.file_name ?? undefined,
+  fileSize: row.file_size ?? undefined,
+  link: row.link ?? undefined,
+  uploadedBy: row.uploaded_by ?? undefined,
+  uploadedAt: row.uploaded_at,
 });
 
 /** Обновляет время последнего изменения (вызывается после каждой правки). */

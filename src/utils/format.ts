@@ -57,6 +57,23 @@ export const formatDate = (iso: string): string => {
   return `${day}.${month}.${year}`;
 };
 
+/**
+ * Размер файла в человеческом виде: «820 Б», «12,4 КБ», «3,1 МБ».
+ * Нужно для карточек материалов и вложений.
+ */
+export const formatFileSize = (bytes?: number): string => {
+  if (!bytes || bytes <= 0) return 'размер неизвестен';
+  if (bytes < 1024) return `${bytes} Б`;
+
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 1024) return `${kilobytes.toFixed(1).replace('.', ',')} КБ`;
+
+  const megabytes = kilobytes / 1024;
+  if (megabytes < 1024) return `${megabytes.toFixed(1).replace('.', ',')} МБ`;
+
+  return `${(megabytes / 1024).toFixed(2).replace('.', ',')} ГБ`;
+};
+
 /** Сколько полных дней осталось до даты. Отрицательное число — задание просрочено. */
 export const daysLeft = (iso: string): number => {
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -96,6 +113,47 @@ export const todayWeekdayIndex = (): number => {
 };
 
 /**
+ * Определяет день недели по дате "ГГГГ-ММ-ДД".
+ *
+ * Нужно для дистанционных занятий: пользователь выбирает конкретную дату,
+ * а день недели приложение вычисляет само (он хранится в записи и используется
+ * для сортировки и для недельной сетки).
+ * Воскресенье относим к понедельнику — учебных пар по воскресеньям не бывает.
+ */
+export const weekdayFromIso = (iso: string): Weekday => {
+  const [year, month, day] = iso.split('-').map(Number);
+  const jsDay = new Date(year, month - 1, day).getDay();
+  if (jsDay === 0) return 'monday';
+  return WEEKDAYS[jsDay - 1].id;
+};
+
+/**
+ * Одна строка описания пары — общая для недельного и дистанционного расписания.
+ * Если withDate = true, перед временем добавляется дата (для занятий по датам).
+ */
+const lessonLine = (
+  lesson: Lesson,
+  index: number,
+  findSubject: (subjectId: string) => Subject | undefined,
+  withDate: boolean,
+): string => {
+  const subject = findSubject(lesson.subjectId);
+  const title = subject ? subject.short || subject.title : 'предмет не найден';
+  const teacher = subject?.teacher ? `, ${subject.teacher}` : '';
+  // Для онлайн-занятий слово «ауд.» неуместно — пишем просто место, например «Онлайн».
+  const room = lesson.room ? `, ${lesson.room === 'Онлайн' ? '' : 'ауд. '}${lesson.room}` : '';
+  const parity =
+    lesson.parity === 'all' ? '' : lesson.parity === 'odd' ? ' (нечётная неделя)' : ' (чётная неделя)';
+
+  const weekdayShort = WEEKDAYS.find((item) => item.id === lesson.weekday)?.short ?? '';
+  const date = withDate && lesson.date ? `${formatDate(lesson.date)} (${weekdayShort}), ` : '';
+
+  return `${index + 1}) ${date}${lesson.startTime}–${lesson.endTime} — ${title} (${LESSON_KIND_LABEL[
+    lesson.kind
+  ].toLowerCase()})${room}${teacher}${parity}`;
+};
+
+/**
  * Готовит расписание одного дня в виде обычного текста — чтобы его можно было
  * отправить в беседу группы сообщением и прочитать, не открывая приложение.
  *
@@ -115,18 +173,31 @@ export const formatDaySchedule = (
 
   // Сортируем по времени начала, чтобы текст всегда был в правильном порядке.
   const sorted = [...lessons].sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-  const lines = sorted.map((lesson, index) => {
-    const subject = findSubject(lesson.subjectId);
-    const title = subject ? subject.short || subject.title : 'предмет не найден';
-    const teacher = subject?.teacher ? `, ${subject.teacher}` : '';
-    const room = lesson.room ? `, ауд. ${lesson.room}` : '';
-    const parity = lesson.parity === 'all' ? '' : lesson.parity === 'odd' ? ' (нечётная неделя)' : ' (чётная неделя)';
-
-    return `${index + 1}) ${lesson.startTime}–${lesson.endTime} — ${title} (${LESSON_KIND_LABEL[
-      lesson.kind
-    ].toLowerCase()})${room}${teacher}${parity}`;
-  });
+  const lines = sorted.map((lesson, index) => lessonLine(lesson, index, findSubject, false));
 
   return `${header}\n\n${lines.join('\n')}\n\nВсего пар: ${sorted.length}`;
+};
+
+/**
+ * Готовит список дистанционных занятий (они идут по датам, а не по дням недели).
+ * Такой текст удобно отправить в беседу: сразу видно, когда будет вебинар.
+ */
+export const formatOnlineSchedule = (
+  groupName: string,
+  lessons: Lesson[],
+  findSubject: (subjectId: string) => Subject | undefined,
+): string => {
+  const header = `Дистанционные занятия группы ${groupName}`;
+
+  if (lessons.length === 0) {
+    return `${header}\n\nЗанятий не назначено.`;
+  }
+
+  // Сортируем по дате и времени.
+  const sorted = [...lessons].sort((a, b) =>
+    `${a.date ?? ''}${a.startTime}`.localeCompare(`${b.date ?? ''}${b.startTime}`),
+  );
+  const lines = sorted.map((lesson, index) => lessonLine(lesson, index, findSubject, true));
+
+  return `${header}\n\n${lines.join('\n')}\n\nВсего занятий: ${sorted.length}`;
 };

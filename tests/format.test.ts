@@ -15,10 +15,13 @@ import {
   formatDate,
   formatDaySchedule,
   formatDaysLeft,
+  formatFileSize,
+  formatOnlineSchedule,
   isoDaysFromNow,
   pluralDays,
   todayIso,
   todayWeekdayIndex,
+  weekdayFromIso,
 } from '../src/utils/format.ts';
 
 test('pluralDays: правильные формы слова «день»', () => {
@@ -136,4 +139,43 @@ test('formatDaySchedule: не падает, если предмет не най�
 
   const text = formatDaySchedule('ИС-31', 'Понедельник', lessons, findSubject);
   assert.match(text, /предмет не найден/);
+});
+
+// --- очно-заочная форма: дистанционные занятия ---
+
+test('weekdayFromIso: определяет день недели по дате', () => {
+  // 1 января 2026 — четверг, 3 января — суббота, 4 января — воскресенье.
+  assert.equal(weekdayFromIso('2026-01-01'), 'thursday');
+  assert.equal(weekdayFromIso('2026-01-03'), 'saturday');
+  // Воскресенье относим к понедельнику: пар по воскресеньям не бывает.
+  assert.equal(weekdayFromIso('2026-01-04'), 'monday');
+});
+
+test('formatOnlineSchedule: занятия идут по датам и сортируются', () => {
+  const lessons = [
+    { id: '2', subjectId: 'db', weekday: 'thursday', startTime: '18:00', endTime: '19:30', room: 'Онлайн', kind: 'practice', parity: 'all', mode: 'online', date: '2026-01-08' },
+    { id: '1', subjectId: 'pe', weekday: 'monday', startTime: '11:00', endTime: '12:30', room: 'Онлайн', kind: 'lecture', parity: 'all', mode: 'online', date: '2026-01-05' },
+  ];
+
+  const text = formatOnlineSchedule('ИС-31', lessons, findSubject);
+
+  assert.match(text, /Дистанционные занятия группы ИС-31/);
+  // Дата и день недели видны сразу — это главное для занятий по датам.
+  assert.match(text, /1\) 05\.01\.2026 \(Пн\), 11:00–12:30 — Физра \(лекция\), Онлайн, Зайцев П\. Р\./);
+  assert.match(text, /2\) 08\.01\.2026 \(Чт\), 18:00–19:30 — БД \(практика\), Онлайн, Иванова М\. П\./);
+  assert.match(text, /Всего занятий: 2/);
+  assert.ok(text.indexOf('05.01.2026') < text.indexOf('08.01.2026'), 'занятия должны идти по возрастанию даты');
+});
+
+test('formatOnlineSchedule: пустой список сообщает об отсутствии занятий', () => {
+  const text = formatOnlineSchedule('ИС-31', [], findSubject);
+  assert.match(text, /Занятий не назначено\./);
+});
+
+test('formatFileSize: размер файла в человеческом виде', () => {
+  assert.equal(formatFileSize(undefined), 'размер неизвестен');
+  assert.equal(formatFileSize(0), 'размер неизвестен');
+  assert.equal(formatFileSize(820), '820 Б');
+  assert.equal(formatFileSize(12698), '12,4 КБ');
+  assert.equal(formatFileSize(3250586), '3,1 МБ');
 });

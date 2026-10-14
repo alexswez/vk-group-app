@@ -15,6 +15,8 @@ interface LessonCardProps {
   isNow?: boolean;
   /** Включён ли режим редактирования расписания. */
   editable?: boolean;
+  /** Подпись с датой — показывается для дистанционных занятий (они идут по датам). */
+  dateLabel?: string;
   onEdit?: () => void;
   onDelete?: () => void;
 }
@@ -36,7 +38,7 @@ const Badge = ({ text, color }: { text: string; color?: string }) => (
   </span>
 );
 
-export const LessonCard = ({ lesson, subject, isNow, editable, onEdit, onDelete }: LessonCardProps) => (
+export const LessonCard = ({ lesson, subject, isNow, editable, dateLabel, onEdit, onDelete }: LessonCardProps) => (
   <Card mode="shadow" style={{ marginBottom: 8 }}>
     <Div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
       {/* Цветная полоса слева — визуальный признак предмета. */}
@@ -51,7 +53,8 @@ export const LessonCard = ({ lesson, subject, isNow, editable, onEdit, onDelete 
         </div>
 
         <div style={{ marginTop: 4, fontSize: 14, color: 'var(--vkui--color_text_secondary)' }}>
-          {LESSON_KIND_LABEL[lesson.kind]} · ауд. {lesson.room}
+          {dateLabel ? `${dateLabel} · ` : ''}
+          {LESSON_KIND_LABEL[lesson.kind]} · {lesson.room === 'Онлайн' ? 'Онлайн' : `ауд. ${lesson.room}`}
           {subject?.teacher ? ` · ${subject.teacher}` : ''}
         </div>
 

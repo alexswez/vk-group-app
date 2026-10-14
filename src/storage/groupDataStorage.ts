@@ -9,6 +9,7 @@
 import { GroupData } from '../types';
 import { createMockGroupData } from '../data/mockData';
 import { apiGetGroup, apiReset, checkServer, isServerAvailable } from './api';
+import { normalizeGroupData } from './normalize';
 
 /** Ключ, под которым данные лежат в localStorage (локальный режим). */
 const STORAGE_KEY = 'vk-group-app:group-data';
@@ -50,7 +51,7 @@ export const loadGroupData = async (): Promise<GroupData> => {
 
   if (serverIsUp) {
     try {
-      const data = await apiGetGroup();
+      const data = normalizeGroupData(await apiGetGroup());
       // Дублируем в localStorage: если сервер потом пропадёт, приложение останется с данными.
       saveToLocalStorage(data);
       return data;
@@ -59,7 +60,7 @@ export const loadGroupData = async (): Promise<GroupData> => {
     }
   }
 
-  return loadFromLocalStorage();
+  return normalizeGroupData(loadFromLocalStorage());
 };
 
 /** Сохраняет данные локально (используется только в режиме без сервера). */
