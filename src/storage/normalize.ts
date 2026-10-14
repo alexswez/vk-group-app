@@ -23,7 +23,7 @@ export const normalizeGroupData = (data: Partial<GroupData> | null | undefined):
 
   return {
     version: data?.version ?? 2,
-    groupName: data?.groupName ?? 'ИС-31',
+    groupName: data?.groupName ?? 'ИСПСВ-301',
     subjects: data?.subjects ?? [],
     lessons,
     tasks: data?.tasks ?? [],

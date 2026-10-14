@@ -82,7 +82,7 @@ const nothing = await execute('DELETE FROM tasks WHERE id = ?', ['нет-так�
 check('DELETE несуществующей строки вернул 0', nothing === 0);
 
 data = await resetDatabase();
-check('Полный сброс вернул тестовые данные', data.subjects.length === 7 && data.groupName === 'ИС-31');
+check('Полный сброс вернул тестовые данные', data.subjects.length === 7 && data.groupName === 'ИСПСВ-301');
 
 console.log(`\nИтог: успешно ${passed}, провалено ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

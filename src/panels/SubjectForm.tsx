@@ -1,6 +1,6 @@
 // Экран-форма предмета: создание новой дисциплины и изменение существующей.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Div, FormItem, Group, Header, Input, NavIdProps, Panel, PanelHeader } from '@vkontakte/vkui';
 import { useRouteNavigator } from '@vkontakte/vk-mini-apps-router';
 
@@ -21,8 +21,22 @@ export const SubjectForm = ({ nav }: NavIdProps) => {
   const [error, setError] = useState<string | null>(null);
   /** true, пока идёт сохранение: защищает от повторного нажатия (иначе создаются дубликаты). */
   const [saving, setSaving] = useState(false);
+  /**
+   * Какой предмет уже загружен в форму.
+   *
+   * Зачем: заполнять форму нужно РОВНО ОДИН раз при открытии. Объект предмета берётся
+   * из списка, а список обновляется при каждом чтении данных из облака — без этой
+   * проверки форма сбрасывалась прямо во время ввода.
+   */
+  const loadedSubjectId = useRef<string | null | undefined>(undefined);
+  /** Синхронный флажок сохранения: состояние React не успевает обновиться при быстрых нажатиях. */
+  const savingRef = useRef(false);
 
   useEffect(() => {
+    const loadedKey = editingSubject ? editingSubject.id : null;
+    if (loadedSubjectId.current === loadedKey) return;
+    loadedSubjectId.current = loadedKey;
+
     if (editingSubject) {
       setTitle(editingSubject.title);
       setShort(editingSubject.short);
@@ -37,7 +51,7 @@ export const SubjectForm = ({ nav }: NavIdProps) => {
 
   const handleSave = async () => {
     // Защита от повторного нажатия: пока идёт сохранение, второй раз не запускаем.
-    if (saving) return;
+    if (savingRef.current) return;
 
     if (title.trim().length < 3) {
       setError('Название предмета должно быть не короче 3 символов.');
@@ -45,6 +59,7 @@ export const SubjectForm = ({ nav }: NavIdProps) => {
     }
 
     const payload = { title, short, teacher };
+    savingRef.current = true;
     setSaving(true);
 
     try {
@@ -57,6 +72,7 @@ export const SubjectForm = ({ nav }: NavIdProps) => {
       startSubjectEditing(null);
       routeNavigator.push(PATHS.SUBJECTS);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

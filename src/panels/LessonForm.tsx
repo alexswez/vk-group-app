@@ -5,7 +5,7 @@
 //   • «Дистанционно»— занятие привязано к конкретной дате (вебинар), дату выбирает пользователь,
 //                     а день недели приложение вычисляет само.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Button,
   Div,
@@ -61,8 +61,22 @@ export const LessonForm = ({ nav }: NavIdProps) => {
   const [error, setError] = useState<string | null>(null);
   /** true, пока идёт сохранение: защищает от повторного нажатия. */
   const [saving, setSaving] = useState(false);
+  /**
+   * Какая пара уже загружена в форму.
+   *
+   * Зачем: заполнять форму нужно РОВНО ОДИН раз при открытии. Если зависеть ещё и от
+   * списка предметов (а он обновляется при каждом чтении данных из облака), форма
+   * сбрасывается прямо во время заполнения — пользователь теряет введённое.
+   */
+  const loadedLessonId = useRef<string | null | undefined>(undefined);
+  /** Синхронный флажок сохранения: состояние React не успевает обновиться при быстрых нажатиях. */
+  const savingRef = useRef(false);
 
   useEffect(() => {
+    const loadedKey = editingLesson ? editingLesson.id : null;
+    if (loadedLessonId.current === loadedKey) return;
+    loadedLessonId.current = loadedKey;
+
     if (editingLesson) {
       setSubjectId(editingLesson.subjectId);
       setMode(editingLesson.mode);
@@ -74,7 +88,7 @@ export const LessonForm = ({ nav }: NavIdProps) => {
       setKind(editingLesson.kind);
       setParity(editingLesson.parity);
     } else {
-      setSubjectId(subjects[0]?.id ?? '');
+      setSubjectId('');
       setMode('session');
       setWeekday('monday');
       setDate(isoDaysFromNow(1));
@@ -85,11 +99,18 @@ export const LessonForm = ({ nav }: NavIdProps) => {
       setParity('all');
     }
     setError(null);
-  }, [editingLesson, subjects]);
+  }, [editingLesson]);
+
+  // Предмет по умолчанию — отдельным эффектом: список приходит из облака не сразу.
+  useEffect(() => {
+    if (!editingLesson && !subjectId && subjects.length > 0) {
+      setSubjectId(subjects[0].id);
+    }
+  }, [subjects, editingLesson, subjectId]);
 
   const handleSave = async () => {
     // Защита от повторного нажатия.
-    if (saving) return;
+    if (savingRef.current) return;
 
     if (!subjectId) {
       setError('Выберите предмет.');
@@ -122,6 +143,7 @@ export const LessonForm = ({ nav }: NavIdProps) => {
       date: mode === 'online' ? date : undefined,
     };
 
+    savingRef.current = true;
     setSaving(true);
     try {
       if (editingLesson) {
@@ -133,6 +155,7 @@ export const LessonForm = ({ nav }: NavIdProps) => {
       startLessonEditing(null);
       routeNavigator.push(PATHS.SCHEDULE);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

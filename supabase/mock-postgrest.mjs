@@ -46,7 +46,7 @@ const db = {
     { id: 't5', subject_id: 'web', title: 'Курсовая работа', description: '', kind: 'coursework', due_date: '2030-01-14', status: 'inProgress', author_id: 3, author_name: 'Мария К.', created_at: new Date().toISOString() },
   ],
   meta: [
-    { key: 'group_name', value: 'ИС-31' },
+    { key: 'group_name', value: 'ИСПСВ-301' },
     { key: 'version', value: '1' },
   ],
 };

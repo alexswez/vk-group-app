@@ -245,7 +245,7 @@ check('Пустое название группы отклоняется (400)',
 
 // --- 11. Сброс к тестовым данным (заодно убирает всё, что создал тест)
 group = await call('/api/reset', 'POST');
-check('POST /api/reset вернул тестовые данные', group.groupName === 'ИС-31' && group.subjects.length > 0);
+check('POST /api/reset вернул тестовые данные', group.groupName === 'ИСПСВ-301' && group.subjects.length > 0);
 
 console.log(`\nИтог: успешно ${passed}, провалено ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

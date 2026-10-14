@@ -17,7 +17,7 @@ test('normalizeGroupData: из пустого ответа получается 
   assert.deepEqual(data.tasks, []);
   assert.deepEqual(data.materials, []);
   assert.equal(data.version, 2);
-  assert.equal(data.groupName, 'ИС-31');
+  assert.equal(data.groupName, 'ИСПСВ-301');
   assert.match(data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 

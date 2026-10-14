@@ -84,7 +84,7 @@ create policy "anon write meta" on meta for all    to anon, authenticated using 
 
 -- ---------------------------------------------------------------- ДАННЫЕ
 
--- Предметы группы ИС-31
+-- Предметы группы ИСПСВ-301
 insert into subjects (id, title, short, teacher) values
   ('db',   'Базы данных',                                   'БД',    'Иванова М. П.'),
   ('web',  'Web-программирование',                          'Web',   'Петров А. С.'),
@@ -128,6 +128,6 @@ on conflict (id) do nothing;
 -- Время последнего изменения не задаём заранее: его проставит приложение при первой же правке.
 -- Если значения нет, интерфейс подставит текущее время сам.
 insert into meta (key, value) values
-  ('group_name', 'ИС-31'),
+  ('group_name', 'ИСПСВ-301'),
   ('version', '1')
 on conflict (key) do nothing;

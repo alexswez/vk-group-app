@@ -12,7 +12,7 @@ const isoDaysFromNow = (days) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
-export const seedGroupName = 'ИС-31';
+export const seedGroupName = 'ИСПСВ-301';
 
 export const seedSubjects = [
   { id: 'db', title: 'Базы данных', short: 'БД', teacher: 'Иванова М. П.' },

@@ -54,11 +54,26 @@ export const TaskForm = ({ nav }: NavIdProps) => {
   /** true, пока идёт сохранение (включая загрузку файла): защищает от повторного нажатия. */
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * Какое задание уже загружено в форму.
+   *
+   * Зачем: заполнять форму нужно РОВНО ОДИН раз при открытии. Если зависеть ещё и от
+   * списка предметов (а он обновляется при каждом чтении данных из облака), форма
+   * сбрасывается — и выбранный файл исчезает ещё до нажатия «Сохранить».
+   */
+  const loadedTaskId = useRef<string | null | undefined>(undefined);
+  /** Синхронный флажок сохранения: состояние React не успевает обновиться при быстрых нажатиях. */
+  const savingRef = useRef(false);
 
   const canUploadFiles = supportsFileUpload();
 
   // Когда открываем форму для конкретного задания — заполняем поля его данными.
   useEffect(() => {
+    const loadedKey = editingTask ? editingTask.id : null;
+    // Это задание уже загружено — повторно форму не заполняем и файл не сбрасываем.
+    if (loadedTaskId.current === loadedKey) return;
+    loadedTaskId.current = loadedKey;
+
     if (editingTask) {
       setTitle(editingTask.title);
       setDescription(editingTask.description);
@@ -70,7 +85,7 @@ export const TaskForm = ({ nav }: NavIdProps) => {
     } else {
       setTitle('');
       setDescription('');
-      setSubjectId(subjects[0]?.id ?? '');
+      setSubjectId('');
       setKind('homework');
       setDueDate(isoDaysFromNow(7));
       setStatus('todo');
@@ -78,11 +93,19 @@ export const TaskForm = ({ nav }: NavIdProps) => {
     }
     setFile(undefined);
     setError(null);
-  }, [editingTask, subjects]);
+  }, [editingTask]);
+
+  // Предмет по умолчанию — отдельным эффектом: список приходит из облака не сразу,
+  // но сбрасывать из-за этого уже выбранный файл нельзя.
+  useEffect(() => {
+    if (!editingTask && !subjectId && subjects.length > 0) {
+      setSubjectId(subjects[0].id);
+    }
+  }, [subjects, editingTask, subjectId]);
 
   const handleSave = async () => {
     // Защита от повторного нажатия: пока идёт сохранение, второй раз не запускаем.
-    if (saving) return;
+    if (savingRef.current) return;
 
     // Простая валидация: объясняем пользователю, что именно не так.
     if (title.trim().length < 3) {
@@ -131,6 +154,7 @@ export const TaskForm = ({ nav }: NavIdProps) => {
       attachmentLink: link.trim() || undefined,
     };
 
+    savingRef.current = true;
     setSaving(true);
     try {
       if (editingTask) {
@@ -143,6 +167,7 @@ export const TaskForm = ({ nav }: NavIdProps) => {
       startTaskEditing(null);
       routeNavigator.push(PATHS.TASKS);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -222,6 +247,10 @@ export const TaskForm = ({ nav }: NavIdProps) => {
               ref={fileInputRef}
               type="file"
               style={{ display: 'none' }}
+              // Сбрасываем значение после выбора: иначе тот же файл нельзя выбрать повторно.
+              onClick={(event) => {
+                event.currentTarget.value = '';
+              }}
               onChange={(event) => setFile(event.target.files?.[0])}
             />
             <Div>

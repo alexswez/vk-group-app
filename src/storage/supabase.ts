@@ -90,7 +90,16 @@ const rest = async <T>(path: string, init?: RequestInit): Promise<T> => {
     if ((error as { status?: number })?.status) throw error;
 
     await new Promise((resolve) => setTimeout(resolve, 400));
-    return attempt();
+
+    try {
+      return await attempt();
+    } catch (retryError) {
+      // Ответ 409 «уже существует» на повтор означает: первая попытка на самом деле дошла
+      // до сервера, а потерялся только ответ. Значит, запись УЖЕ выполнена — считаем её
+      // успешной, чтобы пользователь не увидел ложную ошибку.
+      if ((retryError as { status?: number })?.status === 409) return undefined as T;
+      throw retryError;
+    }
   }
 };
 
@@ -170,7 +179,7 @@ export const supabaseGetGroup = async (): Promise<GroupData> => {
 
   return {
     version: Number(meta.get('version') ?? 1),
-    groupName: meta.get('group_name') ?? 'ИС-31',
+    groupName: meta.get('group_name') ?? 'ИСПСВ-301',
     subjects: subjectRows.map(mapSubject),
     lessons: lessonRows.map(mapLesson),
     tasks: taskRows.map(mapTask),

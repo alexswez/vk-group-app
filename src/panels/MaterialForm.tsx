@@ -30,6 +30,16 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
     : undefined;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * Какой материал уже загружен в форму.
+   *
+   * Зачем: форма должна заполняться РОВНО ОДИН раз при открытии. Раньше эффект зависел
+   * ещё и от списка предметов, а он обновляется при каждом чтении данных из облака —
+   * из-за этого форма сбрасывалась и выбранный файл исчезал ещё до нажатия «Сохранить».
+   */
+  const loadedMaterialId = useRef<string | null | undefined>(undefined);
+  /** Синхронный флажок сохранения: состояние React не успевает обновиться при быстрых нажатиях. */
+  const savingRef = useRef(false);
 
   const [subjectId, setSubjectId] = useState('');
   const [title, setTitle] = useState('');
@@ -43,24 +53,37 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
   const canUploadFiles = supportsFileUpload();
 
   useEffect(() => {
+    const loadedKey = editingMaterial ? editingMaterial.id : null;
+    // Этот материал уже загружен в форму — повторно её не заполняем и файл не сбрасываем.
+    if (loadedMaterialId.current === loadedKey) return;
+    loadedMaterialId.current = loadedKey;
+
     if (editingMaterial) {
       setSubjectId(editingMaterial.subjectId);
       setTitle(editingMaterial.title);
       setDescription(editingMaterial.description);
       setLink(editingMaterial.link ?? '');
     } else {
-      setSubjectId(subjects[0]?.id ?? '');
+      setSubjectId('');
       setTitle('');
       setDescription('');
       setLink('');
     }
     setFile(undefined);
     setError(null);
-  }, [editingMaterial, subjects]);
+  }, [editingMaterial]);
+
+  // Предмет по умолчанию подставляем отдельным эффектом: список предметов приходит
+  // из облака не сразу, но сбрасывать из-за этого уже выбранный файл нельзя.
+  useEffect(() => {
+    if (!editingMaterial && !subjectId && subjects.length > 0) {
+      setSubjectId(subjects[0].id);
+    }
+  }, [subjects, editingMaterial, subjectId]);
 
   const handleSave = async () => {
     // Защита от повторного нажатия: файл может загружаться несколько секунд.
-    if (saving) return;
+    if (savingRef.current) return;
 
     if (title.trim().length < 3) {
       setError('Название материала должно быть не короче 3 символов.');
@@ -78,6 +101,7 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
 
     const payload = { subjectId, title, description, link: link.trim() || undefined, file };
 
+    savingRef.current = true;
     setSaving(true);
     try {
       if (editingMaterial) {
@@ -89,6 +113,7 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
       startMaterialEditing(null);
       routeNavigator.push(PATHS.MATERIALS);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -139,6 +164,10 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
               ref={fileInputRef}
               type="file"
               style={{ display: 'none' }}
+              // Сбрасываем значение после выбора: иначе тот же файл нельзя выбрать повторно.
+              onClick={(event) => {
+                event.currentTarget.value = '';
+              }}
               onChange={(event) => setFile(event.target.files?.[0])}
             />
             <Div>

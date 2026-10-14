@@ -102,7 +102,15 @@ const rest = async (path, init = {}) => {
     // Повторяем только сетевые сбои, а не осмысленные ответы сервера (400/404 и т. п.).
     if (error?.status) throw error;
     await new Promise((resolve) => setTimeout(resolve, 500));
-    return attempt();
+
+    try {
+      return await attempt();
+    } catch (retryError) {
+      // 409 «уже существует» на повтор означает, что первая попытка дошла до сервера,
+      // а потерялся только ответ. Значит, запись выполнена — это не ошибка.
+      if (retryError?.status === 409) return undefined;
+      throw retryError;
+    }
   }
 };
 
@@ -115,9 +123,18 @@ check('Таблица subjects доступна', Array.isArray(subjects));
 // Количество не проверяем: группа может добавлять и удалять свои предметы.
 check('Список предметов не пуст', subjects.length > 0, `получено ${subjects.length}`);
 
+// Для проверок берём РЕАЛЬНЫЙ предмет группы: демонстрационный набор мог быть удалён.
+const TEST_SUBJECT_ID = subjects[0]?.id;
+
 const lessons = await rest('/lessons?select=*');
 check('Таблица lessons доступна', Array.isArray(lessons));
 check('Расписание не пустое', lessons.length > 0, `получено ${lessons?.length} пар`);
+
+// Убираем следы прерванных прогонов: иначе проверка может упасть на конфликте.
+const staleTasks = (await rest('/tasks?select=id')).filter((row) => String(row.id).startsWith('task_check_'));
+for (const row of staleTasks) {
+  await rest(`/tasks?id=eq.${encodeURIComponent(row.id)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+}
 
 const tasksBefore = await rest('/tasks?select=*');
 check('Таблица tasks доступна', Array.isArray(tasksBefore));
@@ -157,7 +174,7 @@ await rest('/tasks', {
   headers: { Prefer: 'return=minimal' },
   body: JSON.stringify({
     id: TEST_ID,
-    subject_id: 'db',
+    subject_id: TEST_SUBJECT_ID,
     title: TITLE,
     description: 'Создано автоматическим тестом',
     kind: 'lab',
@@ -187,22 +204,27 @@ tasks = await rest('/tasks?select=*');
 check('Статус изменён', tasks.find((task) => task.id === TEST_ID)?.status === 'done');
 
 // --- 4. Обновление названия группы (upsert в meta)
+// Сначала запоминаем текущее название: возвращать нужно ИМЕННО его, а не жёстко заданное,
+// иначе проверка затрёт название группы, которое студент выбрал в приложении.
+const groupNameBefore = meta.find((row) => row.key === 'group_name')?.value;
+const TEST_GROUP_NAME = `${groupNameBefore ?? 'группа'} (проверка)`;
+
 await rest('/meta', {
   method: 'POST',
   headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-  body: JSON.stringify({ key: 'group_name', value: 'ИС-31 (проверка)' }),
+  body: JSON.stringify({ key: 'group_name', value: TEST_GROUP_NAME }),
 });
 const metaAfter = await rest('/meta?select=*');
 check(
   'Upsert в meta работает',
-  metaAfter.find((row) => row.key === 'group_name')?.value === 'ИС-31 (проверка)',
+  metaAfter.find((row) => row.key === 'group_name')?.value === TEST_GROUP_NAME,
 );
 
 // возвращаем прежнее название
 await rest('/meta', {
   method: 'POST',
   headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-  body: JSON.stringify({ key: 'group_name', value: 'ИС-31' }),
+  body: JSON.stringify({ key: 'group_name', value: groupNameBefore }),
 });
 
 // --- 4.5. Новые возможности (проверяем только если схема обновлена)
@@ -213,7 +235,7 @@ if (hasLessonMode) {
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({
       id: LESSON_ID,
-      subject_id: 'web',
+      subject_id: TEST_SUBJECT_ID,
       weekday: 'wednesday',
       start_time: '18:00',
       end_time: '19:30',
@@ -241,7 +263,7 @@ if (hasAttachments) {
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({
       id: TASK_ID,
-      subject_id: 'db',
+      subject_id: TEST_SUBJECT_ID,
       title: 'Проверка вложения',
       description: '',
       kind: 'lab',
@@ -266,7 +288,7 @@ if (hasMaterials) {
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({
       id: MATERIAL_ID,
-      subject_id: 'db',
+      subject_id: TEST_SUBJECT_ID,
       title: 'Проверочный материал — кириллица',
       description: 'Создан автотестом',
       link: 'https://example.com/material.pdf',

@@ -43,6 +43,11 @@ try {
     group.subjects.length > 0 && group.lessons.length > 0 && Array.isArray(group.materials),
     `предметов ${group.subjects.length}, пар ${group.lessons.length}`,
   );
+
+  // Для проверок берём РЕАЛЬНЫЙ предмет группы: демонстрационный набор мог быть удалён,
+  // и ссылка на несуществующий предмет справедливо отклоняется базой.
+  const testSubjectId = group.subjects[0]?.id;
+  check('В группе есть предмет для проверок', Boolean(testSubjectId));
   check('Название группы прочитано', typeof group.groupName === 'string' && group.groupName.length > 0, group.groupName);
   check('Предметы отображены в объекты приложения (title, short, teacher)', Boolean(group.subjects[0]?.title && group.subjects[0]?.short));
 
@@ -52,7 +57,7 @@ try {
 
   group = await driver.supabaseCreateTask({
     id,
-    subjectId: 'db',
+    subjectId: testSubjectId,
     title: 'Проверка драйвера — кириллица и «кавычки»',
     description: 'Создано проверкой кода приложения',
     kind: 'lab',
@@ -65,7 +70,7 @@ try {
   check('Задание создано через код приложения', group.tasks.length === tasksBefore + 1, `${tasksBefore} → ${group.tasks.length}`);
   check('Кириллица дошла до облака без искажений', created?.title === 'Проверка драйвера — кириллица и «кавычки»', created?.title);
   check('Дата и автор сохранены', created?.dueDate === '2030-06-06' && created?.authorName === 'Автопроверка');
-  check('Поля приведены к типам приложения (subjectId, dueDate)', created?.subjectId === 'db' && typeof created?.dueDate === 'string');
+  check('Поля приведены к типам приложения (subjectId, dueDate)', created?.subjectId === testSubjectId && typeof created?.dueDate === 'string');
 
   // Изменение статуса
   group = await driver.supabasePatchTask(id, { status: 'done' });
@@ -73,7 +78,7 @@ try {
 
   // Изменение задания целиком
   group = await driver.supabaseUpdateTask(id, {
-    subjectId: 'web',
+    subjectId: testSubjectId,
     title: 'Изменено драйвером',
     description: '',
     kind: 'test',
@@ -81,13 +86,13 @@ try {
     status: 'inProgress',
   });
   const updated = group.tasks.find((task) => task.id === id);
-  check('Поля задания обновлены', updated?.title === 'Изменено драйвером' && updated?.subjectId === 'web');
+  check('Поля задания обновлены', updated?.title === 'Изменено драйвером' && updated?.subjectId === testSubjectId);
 
   // Работа с расписанием
   const lessonsBefore = group.lessons.length;
   group = await driver.supabaseCreateLesson({
     id: `lesson_driver_${Date.now().toString(36)}`,
-    subjectId: 'pe',
+    subjectId: testSubjectId,
     weekday: 'saturday',
     startTime: '16:00',
     endTime: '17:30',
@@ -103,9 +108,13 @@ try {
   check('Пара удалена через код приложения', group.lessons.length === lessonsBefore);
 
   // Название группы
-  group = await driver.supabaseSetGroupName('ИС-31 (проверка драйвера)');
-  check('Название группы изменено', group.groupName === 'ИС-31 (проверка драйвера)', group.groupName);
-  group = await driver.supabaseSetGroupName('ИС-31');
+  // Запоминаем текущее название группы и возвращаем именно его:
+  // иначе проверка затрёт название, которое студент выбрал в приложении.
+  const originalGroupName = group.groupName;
+  group = await driver.supabaseSetGroupName(`${originalGroupName} (проверка драйвера)`);
+  check('Название группы изменено', group.groupName === `${originalGroupName} (проверка драйвера)`, group.groupName);
+  group = await driver.supabaseSetGroupName(originalGroupName);
+  check('Прежнее название возвращено', group.groupName === originalGroupName, group.groupName);
 
   // --- Материалы: загрузка настоящего файла в облачное хранилище ---
   const materialId = `material_driver_${Date.now().toString(36)}`;
@@ -116,7 +125,7 @@ try {
   group = await driver.supabaseCreateMaterial(
     materialId,
     {
-      subjectId: 'db',
+      subjectId: testSubjectId,
       title: 'Проверка загрузки файла',
       description: 'Создано проверкой драйвера',
       file,
@@ -141,7 +150,7 @@ try {
   const onlineId = `lesson_online_${Date.now().toString(36)}`;
   group = await driver.supabaseCreateLesson({
     id: onlineId,
-    subjectId: 'web',
+    subjectId: testSubjectId,
     weekday: 'wednesday',
     startTime: '18:00',
     endTime: '19:30',
@@ -163,7 +172,7 @@ try {
   const attachedId = `task_attach_${Date.now().toString(36)}`;
   group = await driver.supabaseCreateTask({
     id: attachedId,
-    subjectId: 'db',
+    subjectId: testSubjectId,
     title: 'Задание с вложением (проверка драйвера)',
     description: '',
     kind: 'lab',

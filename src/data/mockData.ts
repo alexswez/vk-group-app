@@ -172,7 +172,7 @@ const materials: Material[] = [
  */
 export const createMockGroupData = (): GroupData => ({
   version: 2,
-  groupName: 'ИС-31',
+  groupName: 'ИСПСВ-301',
   subjects: subjects.map((item) => ({ ...item })),
   lessons: lessons.map((item) => ({ ...item })),
   tasks: tasks.map((item) => ({ ...item })),
