@@ -38,6 +38,14 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
 /** Проверяет, поднят ли сервер. Вызывается один раз при запуске приложения. */
 export const checkServer = async (): Promise<boolean> => {
+  // Особый случай: приложение открыто внутри ВКонтакте по HTTPS, а адрес сервера — http://.
+  // Браузер запретит такой запрос («смешанный контент»), поэтому даже не пытаемся его делать:
+  // сразу работаем локально, без ошибок в консоли и без ожидания таймаута.
+  if (window.location.protocol === 'https:' && BASE_URL.startsWith('http://')) {
+    serverAvailable = false;
+    return false;
+  }
+
   try {
     await request<{ ok: boolean }>('/health');
     serverAvailable = true;
