@@ -9,6 +9,7 @@
     "dev": "node --watch index.js",
     "test": "node smoke-test.mjs",
     "check:postgres": "node check-postgres.mjs",
+    "check:schema": "node check-supabase-schema.mjs",
     "reset": "node -e \"(async () => { const { initDatabase } = await import('./database.js'); const m = await import('./db.js'); await initDatabase(); await m.initSchema(); await m.resetDatabase(); console.log('База сброшена к тестовым данным'); process.exit(0); })()\""
   },
   "dependencies": {

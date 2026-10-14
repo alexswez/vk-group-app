@@ -24,13 +24,30 @@ const TIMEOUT_MS = 15000;
 /** Строка таблицы как её отдаёт Supabase (имена в snake_case). */
 type Row = Record<string, unknown>;
 
-/** Шапка запроса: ключ и токен. Для публичного доступа они совпадают. */
-const headers = (extra?: Record<string, string>): Record<string, string> => ({
-  apikey: ANON_KEY ?? '',
-  Authorization: `Bearer ${ANON_KEY ?? ''}`,
-  'Content-Type': 'application/json',
-  ...extra,
-});
+/**
+ * Шапка запроса.
+ *
+ * Тонкость про ключи: у Supabase два формата.
+ *   • старый («anon») — это JWT, он начинается с `eyJ`. Его передают и в `apikey`,
+ *     и в `Authorization: Bearer ...`;
+ *   • новый («publishable», `sb_publishable_...`) — это НЕ JWT. Если отправить его
+ *     в заголовке Authorization, сервер ответит ошибкой авторизации. Поэтому такой ключ
+ *     передаём только в `apikey`.
+ */
+const headers = (extra?: Record<string, string>): Record<string, string> => {
+  const key = ANON_KEY ?? '';
+  const result: Record<string, string> = {
+    apikey: key,
+    'Content-Type': 'application/json',
+    ...extra,
+  };
+
+  if (key.startsWith('eyJ')) {
+    result.Authorization = `Bearer ${key}`;
+  }
+
+  return result;
+};
 
 /** Обёртка над fetch к REST API Supabase. */
 const rest = async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -126,31 +143,56 @@ const mutateAndReload = async (action: () => Promise<unknown>): Promise<GroupDat
 
 // ---------------------------------------------------------------- ЗАПИСЬ
 
-const taskToRow = (input: TaskInput & { authorId?: number; authorName?: string }): Row => ({
-  subject_id: input.subjectId,
-  title: input.title.trim(),
-  description: input.description.trim(),
-  kind: input.kind,
-  due_date: input.dueDate,
-  status: input.status ?? 'todo',
-  author_id: input.authorId ?? null,
-  author_name: input.authorName ?? null,
-});
+/** Задание для записи в базу: id и время создания приходят из приложения. */
+export type TaskRowInput = TaskInput & {
+  id?: string;
+  createdAt?: string;
+  authorId?: number;
+  authorName?: string;
+};
 
-const lessonToRow = (input: LessonInput): Row => ({
-  subject_id: input.subjectId,
-  weekday: input.weekday,
-  start_time: input.startTime,
-  end_time: input.endTime,
-  room: input.room,
-  kind: input.kind,
-  parity: input.parity,
-});
+/** Пара для записи в базу. */
+export type LessonRowInput = LessonInput & { id?: string };
+
+const taskToRow = (input: TaskRowInput): Row => {
+  const row: Row = {
+    subject_id: input.subjectId,
+    title: input.title.trim(),
+    description: input.description.trim(),
+    kind: input.kind,
+    due_date: input.dueDate,
+    status: input.status ?? 'todo',
+    author_id: input.authorId ?? null,
+    author_name: input.authorName ?? null,
+  };
+
+  // id и created_at добавляем только при создании: при изменении их трогать нельзя.
+  if (input.id) row.id = input.id;
+  if (input.createdAt) row.created_at = input.createdAt;
+
+  return row;
+};
+
+const lessonToRow = (input: LessonRowInput): Row => {
+  const row: Row = {
+    subject_id: input.subjectId,
+    weekday: input.weekday,
+    start_time: input.startTime,
+    end_time: input.endTime,
+    room: input.room,
+    kind: input.kind,
+    parity: input.parity,
+  };
+
+  if (input.id) row.id = input.id;
+
+  return row;
+};
 
 /** Фильтр «все строки»: PostgREST требует фильтр для изменения и удаления. */
 const ALL_ROWS = '?id=not.is.null';
 
-export const supabaseCreateTask = (input: TaskInput & { authorId?: number; authorName?: string }): Promise<GroupData> =>
+export const supabaseCreateTask = (input: TaskRowInput): Promise<GroupData> =>
   mutateAndReload(() =>
     rest('/tasks', {
       method: 'POST',
@@ -185,7 +227,7 @@ export const supabaseDeleteTask = (id: string): Promise<GroupData> =>
     }),
   );
 
-export const supabaseCreateLesson = (input: LessonInput): Promise<GroupData> =>
+export const supabaseCreateLesson = (input: LessonRowInput): Promise<GroupData> =>
   mutateAndReload(() =>
     rest('/lessons', {
       method: 'POST',
@@ -235,7 +277,7 @@ export const supabaseReset = async (): Promise<GroupData> => {
       await rest('/lessons', {
         method: 'POST',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({ id: lesson.id, ...lessonToRow(lesson) }),
+        body: JSON.stringify(lessonToRow(lesson)),
       });
     }
 
@@ -243,10 +285,7 @@ export const supabaseReset = async (): Promise<GroupData> => {
       await rest('/tasks', {
         method: 'POST',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          id: task.id,
-          ...taskToRow({ ...task, authorId: task.authorId, authorName: task.authorName }),
-        }),
+        body: JSON.stringify(taskToRow(task)),
       });
     }
   });

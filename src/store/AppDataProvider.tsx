@@ -145,7 +145,9 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
 
       await mutate(
         (current) => ({ ...current, tasks: [...current.tasks, task] }),
-        () => apiCreateTask({ ...input, authorId: user?.id, authorName }),
+        // Передаём id и время создания: тогда запись сразу получает тот же идентификатор,
+        // что и в интерфейсе (важно для мгновенного изменения статуса новой записи).
+        () => apiCreateTask({ ...input, id: task.id, createdAt: task.createdAt, authorId: user?.id, authorName }),
       );
     },
     [mutate, user, authorName],
@@ -204,7 +206,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       const lesson: Lesson = { id: makeId('lesson'), ...input };
       await mutate(
         (current) => ({ ...current, lessons: [...current.lessons, lesson] }),
-        () => apiCreateLesson(input),
+        () => apiCreateLesson({ ...input, id: lesson.id }),
       );
     },
     [mutate],

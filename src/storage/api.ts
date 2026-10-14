@@ -123,7 +123,7 @@ export const apiGetGroup = (): Promise<GroupData> =>
 // Каждая изменяющая операция возвращает ПОЛНЫЙ набор данных — так проще синхронизировать состояние.
 
 export const apiCreateTask = (
-  input: TaskInput & { authorId?: number; authorName?: string },
+  input: TaskInput & { id?: string; createdAt?: string; authorId?: number; authorName?: string },
 ): Promise<GroupData> =>
   isSupabaseConfigured()
     ? supabaseCreateTask(input)
@@ -147,7 +147,7 @@ export const apiDeleteTask = (id: string): Promise<GroupData> =>
     ? supabaseDeleteTask(id)
     : request<GroupData>(`/api/tasks/${id}`, { method: 'DELETE' });
 
-export const apiCreateLesson = (input: LessonInput): Promise<GroupData> =>
+export const apiCreateLesson = (input: LessonInput & { id?: string }): Promise<GroupData> =>
   isSupabaseConfigured()
     ? supabaseCreateLesson(input)
     : request<GroupData>('/api/lessons', { method: 'POST', body: JSON.stringify(input) });

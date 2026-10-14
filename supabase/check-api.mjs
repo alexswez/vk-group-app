@@ -31,15 +31,29 @@ const check = (name, condition, extra = '') => {
   }
 };
 
+/**
+ * Шапка запроса. У Supabase два формата ключей: старый anon (JWT, начинается с `eyJ`)
+ * передаётся и в `apikey`, и в `Authorization`; новый publishable (`sb_publishable_...`) —
+ * только в `apikey`, иначе сервер отвечает ошибкой авторизации.
+ */
+const buildHeaders = (extra = {}) => {
+  const headers = {
+    apikey: ANON_KEY,
+    'Content-Type': 'application/json',
+    ...extra,
+  };
+
+  if (ANON_KEY.startsWith('eyJ')) {
+    headers.Authorization = `Bearer ${ANON_KEY}`;
+  }
+
+  return headers;
+};
+
 const rest = async (path, init = {}) => {
   const response = await fetch(`${BASE_URL}/rest/v1${path}`, {
     ...init,
-    headers: {
-      apikey: ANON_KEY,
-      Authorization: `Bearer ${ANON_KEY}`,
-      'Content-Type': 'application/json',
-      ...(init.headers ?? {}),
-    },
+    headers: buildHeaders(init.headers ?? {}),
   });
   const text = await response.text();
   if (!response.ok) {
