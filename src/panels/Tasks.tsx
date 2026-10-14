@@ -21,6 +21,7 @@ import { PATHS } from '../routes';
 import { useAppData } from '../store/useAppData';
 import { TaskStatus } from '../types';
 import { daysLeft } from '../utils/format';
+import { shareLink } from '../utils/share';
 
 /** Быстрые фильтры по смыслу: что мне важно сделать сейчас. */
 type Filter = 'active' | 'overdue' | 'done' | 'all';
@@ -33,11 +34,13 @@ const FILTERS: { id: Filter; label: string }[] = [
 ];
 
 export const Tasks = ({ nav }: NavIdProps) => {
-  const { tasks, subjects, startTaskEditing, deleteTask, patchTask } = useAppData();
+  const { tasks, subjects, group, startTaskEditing, deleteTask, patchTask } = useAppData();
   const routeNavigator = useRouteNavigator();
 
   const [filter, setFilter] = useState<Filter>('active');
   const [subjectId, setSubjectId] = useState<string | 'all'>('all');
+  /** Подсказка после нажатия «Поделиться». */
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
 
   const visibleTasks = useMemo(() => {
     return tasks
@@ -60,6 +63,11 @@ export const Tasks = ({ nav }: NavIdProps) => {
   const openForm = (taskId: string | null) => {
     startTaskEditing(taskId);
     routeNavigator.push(PATHS.TASK_FORM);
+  };
+
+  /** Делимся ссылкой на список заданий — её можно отправить в беседу группы. */
+  const handleShare = async () => {
+    setShareMessage(await shareLink(PATHS.TASKS, `Задания группы ${group.groupName}:`));
   };
 
   const activeCount = tasks.filter((task) => task.status !== 'done').length;
@@ -107,6 +115,21 @@ export const Tasks = ({ nav }: NavIdProps) => {
       </Group>
 
       <Group header={<Header size="s">Список заданий</Header>}>
+        <Div>
+          <Button
+            stretched
+            size="m"
+            mode="secondary"
+            onClick={() => void handleShare()}
+          >
+            Поделиться списком заданий
+          </Button>
+          {shareMessage && (
+            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--vkui--color_text_secondary)' }}>
+              {shareMessage}
+            </div>
+          )}
+        </Div>
         {visibleTasks.length === 0 ? (
           <Placeholder icon={<Icon56CheckCircleOutline />} title="Здесь пусто">
             По выбранным фильтрам заданий нет. Добавьте задание кнопкой «+ Задание».

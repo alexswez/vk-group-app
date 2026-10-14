@@ -22,6 +22,7 @@ import { PATHS } from '../routes';
 import { useAppData } from '../store/useAppData';
 import { Weekday } from '../types';
 import { WEEKDAYS, todayWeekdayIndex } from '../utils/format';
+import { shareLink } from '../utils/share';
 
 /** Переводит "09:40" в минуты от начала суток — так время удобно сравнивать между собой. */
 const timeToMinutes = (time: string): number => {
@@ -38,6 +39,8 @@ export const Schedule = ({ nav }: NavIdProps) => {
   const [day, setDay] = useState<Weekday>(WEEKDAYS[todayIndex === -1 ? 0 : todayIndex].id);
   const [editable, setEditable] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  /** Подсказка после нажатия «Поделиться» (показывается под кнопкой). */
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
 
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -65,6 +68,12 @@ export const Schedule = ({ nav }: NavIdProps) => {
     routeNavigator.push(PATHS.LESSON_FORM);
   };
 
+  /** Делимся ссылкой на расписание — её можно отправить в беседу группы. */
+  const handleShare = async () => {
+    const dayLabel = WEEKDAYS.find((item) => item.id === day)?.label ?? '';
+    setShareMessage(await shareLink(PATHS.SCHEDULE, `Расписание группы ${group.groupName} (${dayLabel}):`));
+  };
+
   return (
     <Panel nav={nav}>
       <PanelHeader>Расписание</PanelHeader>
@@ -86,6 +95,20 @@ export const Schedule = ({ nav }: NavIdProps) => {
           </TabsItem>
         ))}
       </Tabs>
+
+      {/* Кнопка «Поделиться»: отправляет ссылку на приложение в беседу группы. */}
+      <Group>
+        <Div>
+          <Button stretched size="m" mode="secondary" onClick={() => void handleShare()}>
+            Поделиться расписанием
+          </Button>
+          {shareMessage && (
+            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--vkui--color_text_secondary)' }}>
+              {shareMessage}
+            </div>
+          )}
+        </Div>
+      </Group>
 
       {/* Подтверждение удаления пары (чтобы не удалить случайным нажатием). */}
       {deletingLesson && (
