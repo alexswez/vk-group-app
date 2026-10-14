@@ -7,6 +7,7 @@ import '@vkontakte/vkui/dist/vkui.css';
 import { transformVKBridgeAdaptivity } from './utils';
 import { router } from './routes';
 import { App } from './App';
+import { AppDataProvider } from './store/AppDataProvider';
 
 export const AppConfig = () => {
   const vkBridgeAppearance = useAppearance() || undefined;
@@ -24,7 +25,10 @@ export const AppConfig = () => {
       <AdaptivityProvider {...adaptivity}>
         <AppRoot mode="full" safeAreaInsets={vkBridgeInsets}>
           <RouterProvider router={router}>
-            <App />
+            {/* AppDataProvider — «общая шина» данных: без него экраны не получат расписание и задания. */}
+            <AppDataProvider>
+              <App />
+            </AppDataProvider>
           </RouterProvider>
         </AppRoot>
       </AdaptivityProvider>
