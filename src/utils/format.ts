@@ -3,7 +3,7 @@
 
 // import type — «импорт только типов»: при сборке такая строка полностью исчезает,
 // поэтому файл можно запускать и в Node.js напрямую (например, в тестах).
-import type { LessonKind, TaskKind, Weekday } from '../types';
+import type { Lesson, LessonKind, Subject, TaskKind, Weekday } from '../types';
 
 /** Дни недели в порядке следования с подписями для интерфейса. */
 export const WEEKDAYS: { id: Weekday; label: string; short: string }[] = [
@@ -93,4 +93,40 @@ export const todayWeekdayIndex = (): number => {
   // В JavaScript воскресенье — это 0, понедельник — 1. Переводим в наш порядок (Пн = 0).
   const jsDay = new Date().getDay();
   return jsDay === 0 ? -1 : jsDay - 1;
+};
+
+/**
+ * Готовит расписание одного дня в виде обычного текста — чтобы его можно было
+ * отправить в беседу группы сообщением и прочитать, не открывая приложение.
+ *
+ * Предмет ищем через переданную функцию: так удобно и для реальных данных, и для тестов.
+ */
+export const formatDaySchedule = (
+  groupName: string,
+  dayLabel: string,
+  lessons: Lesson[],
+  findSubject: (subjectId: string) => Subject | undefined,
+): string => {
+  const header = `Расписание группы ${groupName}\n${dayLabel}`;
+
+  if (lessons.length === 0) {
+    return `${header}\n\nВ этот день пар нет.`;
+  }
+
+  // Сортируем по времени начала, чтобы текст всегда был в правильном порядке.
+  const sorted = [...lessons].sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+  const lines = sorted.map((lesson, index) => {
+    const subject = findSubject(lesson.subjectId);
+    const title = subject ? subject.short || subject.title : 'предмет не найден';
+    const teacher = subject?.teacher ? `, ${subject.teacher}` : '';
+    const room = lesson.room ? `, ауд. ${lesson.room}` : '';
+    const parity = lesson.parity === 'all' ? '' : lesson.parity === 'odd' ? ' (нечётная неделя)' : ' (чётная неделя)';
+
+    return `${index + 1}) ${lesson.startTime}–${lesson.endTime} — ${title} (${LESSON_KIND_LABEL[
+      lesson.kind
+    ].toLowerCase()})${room}${teacher}${parity}`;
+  });
+
+  return `${header}\n\n${lines.join('\n')}\n\nВсего пар: ${sorted.length}`;
 };

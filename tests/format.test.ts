@@ -13,6 +13,7 @@ import {
   WEEKDAYS,
   daysLeft,
   formatDate,
+  formatDaySchedule,
   formatDaysLeft,
   isoDaysFromNow,
   pluralDays,
@@ -82,4 +83,57 @@ test('todayWeekdayIndex: корректный индекс для расписа
   const index = todayWeekdayIndex();
   // Понедельник — 0, суббота — 5, воскресенье — -1 (в расписании такого дня нет).
   assert.ok(index >= -1 && index <= 5, `получено ${index}`);
+});
+
+// --- расписание текстом (для отправки в беседу) ---
+
+/** Предметы для проверок. */
+const SUBJECTS = [
+  { id: 'db', title: 'Базы данных', short: 'БД', teacher: 'Иванова М. П.' },
+  { id: 'pe', title: 'Физическая культура', short: 'Физра', teacher: 'Зайцев П. Р.' },
+];
+const findSubject = (id: string) => SUBJECTS.find((subject) => subject.id === id);
+
+test('formatDaySchedule: пустой день сообщает об отсутствии пар', () => {
+  const text = formatDaySchedule('ИС-31', 'Воскресенье', [], findSubject);
+  assert.match(text, /ИС-31/);
+  assert.match(text, /Воскресенье/);
+  assert.match(text, /В этот день пар нет\./);
+});
+
+test('formatDaySchedule: пары идут по порядку и содержат аудиторию с преподавателем', () => {
+  const lessons = [
+    { id: '2', subjectId: 'pe', weekday: 'monday', startTime: '12:40', endTime: '14:10', room: 'Спортзал', kind: 'practice', parity: 'all' },
+    { id: '1', subjectId: 'db', weekday: 'monday', startTime: '09:00', endTime: '10:30', room: '312', kind: 'lecture', parity: 'all' },
+  ];
+
+  const text = formatDaySchedule('ИС-31', 'Понедельник', lessons, findSubject);
+
+  assert.match(text, /1\) 09:00–10:30 — БД \(лекция\), ауд\. 312, Иванова М\. П\./);
+  assert.match(text, /2\) 12:40–14:10 — Физра \(практика\), ауд\. Спортзал, Зайцев П\. Р\./);
+  assert.match(text, /Всего пар: 2/);
+
+  // Даже если пары пришли вперемешку, в тексте они должны идти по времени.
+  assert.ok(
+    text.indexOf('1) 09:00') < text.indexOf('2) 12:40'),
+    'пары должны быть отсортированы по времени начала',
+  );
+});
+
+test('formatDaySchedule: отмечает чётность недели', () => {
+  const lessons = [
+    { id: '1', subjectId: 'db', weekday: 'monday', startTime: '09:00', endTime: '10:30', room: '312', kind: 'lecture', parity: 'odd' },
+  ];
+
+  const text = formatDaySchedule('ИС-31', 'Понедельник', lessons, findSubject);
+  assert.match(text, /нечётная неделя/);
+});
+
+test('formatDaySchedule: не падает, если предмет не найден', () => {
+  const lessons = [
+    { id: '1', subjectId: 'неизвестный', weekday: 'monday', startTime: '09:00', endTime: '10:30', room: '312', kind: 'lecture', parity: 'all' },
+  ];
+
+  const text = formatDaySchedule('ИС-31', 'Понедельник', lessons, findSubject);
+  assert.match(text, /предмет не найден/);
 });

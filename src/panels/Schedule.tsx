@@ -21,8 +21,8 @@ import { AddLessonButton, LessonCard } from '../components/LessonCard';
 import { PATHS } from '../routes';
 import { useAppData } from '../store/useAppData';
 import { Weekday } from '../types';
-import { WEEKDAYS, todayWeekdayIndex } from '../utils/format';
-import { shareLink } from '../utils/share';
+import { WEEKDAYS, formatDaySchedule, todayWeekdayIndex } from '../utils/format';
+import { copyToClipboard, getAppLink, shareLink } from '../utils/share';
 
 /** Переводит "09:40" в минуты от начала суток — так время удобно сравнивать между собой. */
 const timeToMinutes = (time: string): number => {
@@ -74,6 +74,24 @@ export const Schedule = ({ nav }: NavIdProps) => {
     setShareMessage(await shareLink(PATHS.SCHEDULE, `Расписание группы ${group.groupName} (${dayLabel}):`));
   };
 
+  /**
+   * Копирует расписание обычным текстом.
+   * Так его можно вставить прямо в сообщение: одногруппники прочитают расписание,
+   * не открывая приложение (иногда это удобнее ссылки).
+   */
+  const handleCopyText = async () => {
+    const dayLabel = WEEKDAYS.find((item) => item.id === day)?.label ?? '';
+    const text = [
+      formatDaySchedule(group.groupName, dayLabel, dayLessons, (subjectId) =>
+        subjects.find((subject) => subject.id === subjectId),
+      ),
+      '',
+      `Открыть приложение: ${getAppLink(PATHS.SCHEDULE)}`,
+    ].join('\n');
+
+    setShareMessage(await copyToClipboard(text));
+  };
+
   return (
     <Panel nav={nav}>
       <PanelHeader>Расписание</PanelHeader>
@@ -98,14 +116,15 @@ export const Schedule = ({ nav }: NavIdProps) => {
 
       {/* Кнопка «Поделиться»: отправляет ссылку на приложение в беседу группы. */}
       <Group>
-        <Div>
+        <Div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Button stretched size="m" mode="secondary" onClick={() => void handleShare()}>
             Поделиться расписанием
           </Button>
+          <Button stretched size="m" mode="tertiary" onClick={() => void handleCopyText()}>
+            Скопировать расписание текстом
+          </Button>
           {shareMessage && (
-            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--vkui--color_text_secondary)' }}>
-              {shareMessage}
-            </div>
+            <div style={{ fontSize: 13, color: 'var(--vkui--color_text_secondary)' }}>{shareMessage}</div>
           )}
         </Div>
       </Group>

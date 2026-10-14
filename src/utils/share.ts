@@ -21,6 +21,25 @@ export const getAppLink = (path = ''): string => {
 };
 
 /**
+ * Копирует произвольный текст в буфер обмена и возвращает подсказку для интерфейса.
+ * Порядок попыток тот же, что и при отправке ссылки: сначала средства платформы,
+ * затем браузерный API.
+ */
+export const copyToClipboard = async (text: string): Promise<string> => {
+  try {
+    await bridge.send('VKWebAppCopyText', { text });
+    return 'Расписание скопировано — вставьте его в беседу';
+  } catch {
+    try {
+      await navigator.clipboard.writeText(text);
+      return 'Расписание скопировано — вставьте его в беседу';
+    } catch {
+      return 'Не удалось скопировать автоматически';
+    }
+  }
+};
+
+/**
  * Делится ссылкой и возвращает текст-подсказку для интерфейса.
  *
  * Порядок попыток:
