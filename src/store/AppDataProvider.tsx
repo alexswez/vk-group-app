@@ -22,6 +22,7 @@ import {
   apiSetGroupName,
   apiUpdateLesson,
   apiUpdateTask,
+  canReachServer,
   isServerAvailable,
 } from '../storage/api';
 import { AppDataContext, LessonInput, TaskInput } from './context';
@@ -102,6 +103,8 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
           const fromServer = await serverCall();
           groupRef.current = fromServer;
           setGroup(fromServer);
+          // Сервер ответил — значит общий режим действительно работает.
+          setServerMode(true);
           return;
         } catch {
           // Запрос не прошёл. Пробуем взять актуальную версию данных с сервера.
@@ -109,9 +112,12 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
             const fromServer = await apiGetGroup();
             groupRef.current = fromServer;
             setGroup(fromServer);
+            setServerMode(true);
             return;
           } catch {
-            // Сервер недоступен — работаем локально.
+            // Сервер недоступен: честно сообщаем интерфейсу, что данные теперь локальные,
+            // иначе надпись «общий сервер» вводила бы пользователя в заблуждение.
+            setServerMode(false);
           }
         }
       }
@@ -257,13 +263,20 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
    * один раз при запуске, а общее расписание живёт своей жизнью.
    */
   const refresh = useCallback(async () => {
-    if (!isServerAvailable()) return;
+    // Если из этой страницы обратиться к серверу в принципе нельзя — остаёмся локально.
+    if (!canReachServer()) {
+      setServerMode(false);
+      return;
+    }
+
     try {
       const fresh = await apiGetGroup();
       groupRef.current = fresh;
       setGroup(fresh);
+      setServerMode(true);
     } catch {
-      // Сервер недоступен — оставляем те данные, что уже показаны.
+      // Сервер недоступен: данные остаются прежними, а режим переключается на локальный.
+      setServerMode(false);
     }
   }, []);
 
