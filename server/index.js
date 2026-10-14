@@ -43,7 +43,21 @@ const makeId = (prefix) => `${prefix}_${Date.now().toString(36)}${Math.random().
 // ---------------------------------------------------------------- ЗАДАНИЯ
 
 app.post('/api/tasks', async (req, res) => {
-  const { subjectId, title, description = '', kind, dueDate, status = 'todo', authorId, authorName } = req.body ?? {};
+  // id и время создания приходят из приложения: тогда запись сразу получает тот же id,
+  // что и в интерфейсе (иначе быстрая правка только что созданного задания уходила бы «в никуда»).
+  // Если клиент их не прислал — сервер сгенерирует сам.
+  const {
+    id,
+    subjectId,
+    title,
+    description = '',
+    kind,
+    dueDate,
+    status = 'todo',
+    authorId,
+    authorName,
+    createdAt,
+  } = req.body ?? {};
 
   // Проверяем обязательные поля: сервер никогда не доверяет клиенту «на слово».
   if (!subjectId || !title || !kind || !dueDate) {
@@ -59,7 +73,7 @@ app.post('/api/tasks', async (req, res) => {
     `INSERT INTO tasks (id, subject_id, title, description, kind, due_date, status, author_id, author_name, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      makeId('task'),
+      id ?? makeId('task'),
       subjectId,
       String(title).trim(),
       String(description).trim(),
@@ -68,7 +82,7 @@ app.post('/api/tasks', async (req, res) => {
       status,
       authorId ?? null,
       authorName ?? null,
-      new Date().toISOString(),
+      createdAt ?? new Date().toISOString(),
     ],
   );
 
@@ -121,7 +135,8 @@ app.delete('/api/tasks/:id', async (req, res) => {
 // ---------------------------------------------------------------- РАСПИСАНИЕ
 
 app.post('/api/lessons', async (req, res) => {
-  const { subjectId, weekday, startTime, endTime, room = '', kind, parity = 'all' } = req.body ?? {};
+  // id также может прийти из приложения (см. пояснение в POST /api/tasks).
+  const { id, subjectId, weekday, startTime, endTime, room = '', kind, parity = 'all' } = req.body ?? {};
 
   if (!subjectId || !weekday || !startTime || !endTime || !kind) {
     return res.status(400).json({ error: 'Нужны поля: subjectId, weekday, startTime, endTime, kind' });
@@ -133,7 +148,7 @@ app.post('/api/lessons', async (req, res) => {
   await execute(
     `INSERT INTO lessons (id, subject_id, weekday, start_time, end_time, room, kind, parity)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [makeId('lesson'), subjectId, weekday, startTime, endTime, room, kind, parity],
+    [id ?? makeId('lesson'), subjectId, weekday, startTime, endTime, room, kind, parity],
   );
 
   await touch();

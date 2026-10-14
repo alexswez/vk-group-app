@@ -67,7 +67,11 @@ check(
 // --- 4. Создание задания с кириллицей
 const tasksBefore = group.tasks.length;
 const TITLE = 'Проверка: лабораторная «Нормализация» — 3НФ';
+// Проверяем и передачу id с клиента: приложение присылает свой id, чтобы запись в базе
+// и в интерфейсе имели один и тот же идентификатор.
+const CLIENT_ID = `task_client_${Date.now().toString(36)}`;
 group = await call('/api/tasks', 'POST', {
+  id: CLIENT_ID,
   subjectId: 'db',
   title: TITLE,
   description: 'Создано автоматическим тестом',
@@ -81,6 +85,7 @@ check('POST /api/tasks добавил задание', group.tasks.length === ta
 
 const created = group.tasks.find((task) => task.title === TITLE);
 check('Кириллица в названии сохранилась без искажений', Boolean(created));
+check('Сервер принял id, присланный клиентом', created?.id === CLIENT_ID, `получено ${created?.id}`);
 check('Автор задания сохранён', created?.authorName === 'Тестовый агент');
 check('Дата сдачи сохранена', created?.dueDate === '2030-01-15');
 
