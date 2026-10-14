@@ -21,7 +21,7 @@ import { useAppData } from '../store/useAppData';
 import { formatDate } from '../utils/format';
 
 export const Settings = ({ nav }: NavIdProps) => {
-  const { group, tasks, lessons, subjects, prefs, user, serverMode, setGroupName, patchPrefs, resetToMock } =
+  const { group, tasks, lessons, subjects, prefs, user, serverMode, setGroupName, patchPrefs, resetToMock, refresh } =
     useAppData();
   const [groupName, setLocalGroupName] = useState(group.groupName);
 
@@ -107,7 +107,10 @@ export const Settings = ({ nav }: NavIdProps) => {
           </Div>
         </Card>
 
-        <Div>
+        <Div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Button size="m" mode="secondary" onClick={() => void refresh()}>
+            Обновить данные
+          </Button>
           <Button size="m" appearance="negative" onClick={() => void resetToMock()}>
             Сбросить к тестовым данным
           </Button>

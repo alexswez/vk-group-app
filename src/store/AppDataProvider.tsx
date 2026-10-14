@@ -251,6 +251,38 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     setGroup(fresh);
   }, []);
 
+  /**
+   * Перечитывает данные с сервера.
+   * Нужно, чтобы увидеть то, что добавили одногруппники: приложение читает данные
+   * один раз при запуске, а общее расписание живёт своей жизнью.
+   */
+  const refresh = useCallback(async () => {
+    if (!isServerAvailable()) return;
+    try {
+      const fresh = await apiGetGroup();
+      groupRef.current = fresh;
+      setGroup(fresh);
+    } catch {
+      // Сервер недоступен — оставляем те данные, что уже показаны.
+    }
+  }, []);
+
+  // Обновляем данные, когда пользователь возвращается в приложение
+  // (переключил вкладку, развернул окно, открыл приложение снова).
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden) void refresh();
+    };
+
+    window.addEventListener('focus', handleVisibility);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('focus', handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [refresh]);
+
   // useMemo: объект контекста пересоздаётся только при реальном изменении данных.
   const value = useMemo(
     () => ({
@@ -276,6 +308,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       setGroupName,
       patchPrefs,
       resetToMock,
+      refresh,
     }),
     [
       loading,
@@ -295,6 +328,7 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       setGroupName,
       patchPrefs,
       resetToMock,
+      refresh,
     ],
   );
 

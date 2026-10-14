@@ -69,6 +69,8 @@ export interface AppDataContextValue {
   setGroupName: (name: string) => Promise<void>;
   patchPrefs: (patch: Partial<UserPrefs>) => Promise<void>;
   resetToMock: () => Promise<void>;
+  /** Перечитать данные с сервера: чтобы увидеть изменения, сделанные одногруппниками. */
+  refresh: () => Promise<void>;
 }
 
 /**
