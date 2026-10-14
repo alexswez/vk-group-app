@@ -1,0 +1,17 @@
+{
+  "name": "vk-group-app-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Сервер общего хранилища для мини-приложения «Расписание группы»",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node smoke-test.mjs",
+    "reset": "node -e \"import('./db.js').then(async (m) => { m.resetDatabase(); console.log('База сброшена к тестовым данным'); })\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0"
+  }
+}
