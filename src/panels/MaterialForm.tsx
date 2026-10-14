@@ -37,6 +37,8 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
   const [link, setLink] = useState('');
   const [file, setFile] = useState<File | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  /** true, пока идёт сохранение (включая загрузку файла) — защита от повторного нажатия. */
+  const [saving, setSaving] = useState(false);
 
   const canUploadFiles = supportsFileUpload();
 
@@ -57,6 +59,9 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
   }, [editingMaterial, subjects]);
 
   const handleSave = async () => {
+    // Защита от повторного нажатия: файл может загружаться несколько секунд.
+    if (saving) return;
+
     if (title.trim().length < 3) {
       setError('Название материала должно быть не короче 3 символов.');
       return;
@@ -73,14 +78,19 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
 
     const payload = { subjectId, title, description, link: link.trim() || undefined, file };
 
-    if (editingMaterial) {
-      await updateMaterial(editingMaterial.id, payload);
-    } else {
-      await addMaterial(payload);
-    }
+    setSaving(true);
+    try {
+      if (editingMaterial) {
+        await updateMaterial(editingMaterial.id, payload);
+      } else {
+        await addMaterial(payload);
+      }
 
-    startMaterialEditing(null);
-    routeNavigator.push(PATHS.MATERIALS);
+      startMaterialEditing(null);
+      routeNavigator.push(PATHS.MATERIALS);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -176,7 +186,7 @@ export const MaterialForm = ({ nav }: NavIdProps) => {
         )}
 
         <Div style={{ display: 'flex', gap: 8 }}>
-          <Button stretched size="l" mode="primary" onClick={() => void handleSave()}>
+          <Button stretched size="l" mode="primary" loading={saving} onClick={() => void handleSave()}>
             Сохранить
           </Button>
           <Button

@@ -59,6 +59,8 @@ export const LessonForm = ({ nav }: NavIdProps) => {
   const [kind, setKind] = useState<LessonKind>('lecture');
   const [parity, setParity] = useState<WeekParity>('all');
   const [error, setError] = useState<string | null>(null);
+  /** true, пока идёт сохранение: защищает от повторного нажатия. */
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (editingLesson) {
@@ -86,6 +88,9 @@ export const LessonForm = ({ nav }: NavIdProps) => {
   }, [editingLesson, subjects]);
 
   const handleSave = async () => {
+    // Защита от повторного нажатия.
+    if (saving) return;
+
     if (!subjectId) {
       setError('Выберите предмет.');
       return;
@@ -117,14 +122,19 @@ export const LessonForm = ({ nav }: NavIdProps) => {
       date: mode === 'online' ? date : undefined,
     };
 
-    if (editingLesson) {
-      await updateLesson(editingLesson.id, payload);
-    } else {
-      await addLesson(payload);
-    }
+    setSaving(true);
+    try {
+      if (editingLesson) {
+        await updateLesson(editingLesson.id, payload);
+      } else {
+        await addLesson(payload);
+      }
 
-    startLessonEditing(null);
-    routeNavigator.push(PATHS.SCHEDULE);
+      startLessonEditing(null);
+      routeNavigator.push(PATHS.SCHEDULE);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -246,7 +256,7 @@ export const LessonForm = ({ nav }: NavIdProps) => {
         )}
 
         <Div style={{ display: 'flex', gap: 8 }}>
-          <Button stretched size="l" mode="primary" onClick={() => void handleSave()}>
+          <Button stretched size="l" mode="primary" loading={saving} onClick={() => void handleSave()}>
             Сохранить
           </Button>
           <Button

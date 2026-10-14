@@ -51,6 +51,8 @@ export const TaskForm = ({ nav }: NavIdProps) => {
   /** Внешняя ссылка на файл, если он лежит не у нас. */
   const [link, setLink] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** true, пока идёт сохранение (включая загрузку файла): защищает от повторного нажатия. */
+  const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const canUploadFiles = supportsFileUpload();
@@ -79,6 +81,9 @@ export const TaskForm = ({ nav }: NavIdProps) => {
   }, [editingTask, subjects]);
 
   const handleSave = async () => {
+    // Защита от повторного нажатия: пока идёт сохранение, второй раз не запускаем.
+    if (saving) return;
+
     // Простая валидация: объясняем пользователю, что именно не так.
     if (title.trim().length < 3) {
       setError('Название задания должно быть не короче 3 символов.');
@@ -126,15 +131,20 @@ export const TaskForm = ({ nav }: NavIdProps) => {
       attachmentLink: link.trim() || undefined,
     };
 
-    if (editingTask) {
-      await updateTask(editingTask.id, payload);
-    } else {
-      await addTask(payload);
-    }
+    setSaving(true);
+    try {
+      if (editingTask) {
+        await updateTask(editingTask.id, payload);
+      } else {
+        await addTask(payload);
+      }
 
-    // Возвращаемся на предыдущий экран и сбрасываем «режим редактирования».
-    startTaskEditing(null);
-    routeNavigator.push(PATHS.TASKS);
+      // Возвращаемся на предыдущий экран и сбрасываем «режим редактирования».
+      startTaskEditing(null);
+      routeNavigator.push(PATHS.TASKS);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -254,7 +264,7 @@ export const TaskForm = ({ nav }: NavIdProps) => {
         )}
 
         <Div style={{ display: 'flex', gap: 8 }}>
-          <Button stretched size="l" mode="primary" onClick={() => void handleSave()}>
+          <Button stretched size="l" mode="primary" loading={saving} onClick={() => void handleSave()}>
             Сохранить
           </Button>
           <Button

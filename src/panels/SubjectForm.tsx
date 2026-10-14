@@ -19,6 +19,8 @@ export const SubjectForm = ({ nav }: NavIdProps) => {
   const [short, setShort] = useState('');
   const [teacher, setTeacher] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** true, пока идёт сохранение: защищает от повторного нажатия (иначе создаются дубликаты). */
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (editingSubject) {
@@ -34,21 +36,29 @@ export const SubjectForm = ({ nav }: NavIdProps) => {
   }, [editingSubject]);
 
   const handleSave = async () => {
+    // Защита от повторного нажатия: пока идёт сохранение, второй раз не запускаем.
+    if (saving) return;
+
     if (title.trim().length < 3) {
       setError('Название предмета должно быть не короче 3 символов.');
       return;
     }
 
     const payload = { title, short, teacher };
+    setSaving(true);
 
-    if (editingSubject) {
-      await updateSubject(editingSubject.id, payload);
-    } else {
-      await addSubject(payload);
+    try {
+      if (editingSubject) {
+        await updateSubject(editingSubject.id, payload);
+      } else {
+        await addSubject(payload);
+      }
+
+      startSubjectEditing(null);
+      routeNavigator.push(PATHS.SUBJECTS);
+    } finally {
+      setSaving(false);
     }
-
-    startSubjectEditing(null);
-    routeNavigator.push(PATHS.SUBJECTS);
   };
 
   return (
@@ -89,7 +99,13 @@ export const SubjectForm = ({ nav }: NavIdProps) => {
         )}
 
         <Div style={{ display: 'flex', gap: 8 }}>
-          <Button stretched size="l" mode="primary" onClick={() => void handleSave()}>
+          <Button
+            stretched
+            size="l"
+            mode="primary"
+            loading={saving}
+            onClick={() => void handleSave()}
+          >
             Сохранить
           </Button>
           <Button
