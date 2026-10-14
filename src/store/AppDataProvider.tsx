@@ -305,17 +305,28 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [refresh]);
 
-  // Если сервер не ответил при запуске (например, бесплатный хостинг ещё «просыпается»),
-  // пробуем подключиться снова каждые 10 секунд — без перезагрузки приложения.
-  // Как только получилось, режим сам переключится на «общий сервер».
+  // Если хранилище не ответило при запуске (например, бесплатное облако «просыпается»
+  // или проект был на паузе), пробуем подключиться снова — с увеличивающейся паузой
+  // (10 с, 20 с, 40 с… максимум 2 минуты), всего 8 попыток. Так мы не тратим батарею
+  // и мобильный трафик бесконечными запросами; вручную всегда можно нажать «Обновить данные».
   useEffect(() => {
     if (loading || serverMode || !canReachServer()) return undefined;
 
-    const timer = setInterval(() => {
-      void refresh();
-    }, 10000);
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout>;
 
-    return () => clearInterval(timer);
+    const tick = () => {
+      attempt += 1;
+      void refresh().finally(() => {
+        if (attempt >= 8) return;
+        const delay = Math.min(10000 * 2 ** (attempt - 1), 120000);
+        timer = setTimeout(tick, delay);
+      });
+    };
+
+    timer = setTimeout(tick, 10000);
+
+    return () => clearTimeout(timer);
   }, [loading, serverMode, refresh]);
 
   // useMemo: объект контекста пересоздаётся только при реальном изменении данных.
