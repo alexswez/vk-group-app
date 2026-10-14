@@ -23,6 +23,7 @@ import {
   apiUpdateLesson,
   apiUpdateTask,
   canReachServer,
+  checkServer,
   isServerAvailable,
 } from '../storage/api';
 import { AppDataContext, LessonInput, TaskInput } from './context';
@@ -269,6 +270,14 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
+    // Сначала «будим» сервер проверкой /health: на бесплатных тарифах хостинга он может
+    // просыпаться 30–50 секунд, и запрос данных сразу после этого провалился бы.
+    const serverIsUp = await checkServer();
+    if (!serverIsUp) {
+      setServerMode(false);
+      return;
+    }
+
     try {
       const fresh = await apiGetGroup();
       groupRef.current = fresh;
@@ -295,6 +304,19 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [refresh]);
+
+  // Если сервер не ответил при запуске (например, бесплатный хостинг ещё «просыпается»),
+  // пробуем подключиться снова каждые 10 секунд — без перезагрузки приложения.
+  // Как только получилось, режим сам переключится на «общий сервер».
+  useEffect(() => {
+    if (loading || serverMode || !canReachServer()) return undefined;
+
+    const timer = setInterval(() => {
+      void refresh();
+    }, 10000);
+
+    return () => clearInterval(timer);
+  }, [loading, serverMode, refresh]);
 
   // useMemo: объект контекста пересоздаётся только при реальном изменении данных.
   const value = useMemo(

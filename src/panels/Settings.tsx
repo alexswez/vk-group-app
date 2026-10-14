@@ -18,6 +18,7 @@ import {
 } from '@vkontakte/vkui';
 
 import { useAppData } from '../store/useAppData';
+import { describeSource } from '../storage/api';
 import { formatDate } from '../utils/format';
 
 export const Settings = ({ nav }: NavIdProps) => {
@@ -96,8 +97,7 @@ export const Settings = ({ nav }: NavIdProps) => {
             <span>Пар в расписании: {lessons.length}</span>
             <span>Заданий: {tasks.length}</span>
             <span>
-              Режим данных:{' '}
-              {serverMode ? 'общий сервер — данные видят все одногруппники' : 'локально — только этот браузер'}
+              Режим данных: {serverMode ? describeSource() : 'локально — только этот браузер'}
             </span>
             <span>Последнее изменение: {formatDate(group.updatedAt.slice(0, 10))}</span>
             <span style={{ color: 'var(--vkui--color_text_secondary)' }}>
