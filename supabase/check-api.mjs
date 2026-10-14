@@ -76,16 +76,34 @@ const buildHeaders = (extra = {}) => {
   return headers;
 };
 
+/**
+ * Запрос к REST API с одной повторной попыткой.
+ * Сеть бывает нестабильной (обрыв соединения), и из-за этого проверка не должна падать.
+ */
 const rest = async (path, init = {}) => {
-  const response = await fetch(`${BASE_URL}/rest/v1${path}`, {
-    ...init,
-    headers: buildHeaders(init.headers ?? {}),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`${init.method ?? 'GET'} ${path} → ${response.status} ${text.slice(0, 300)}`);
+  const attempt = async () => {
+    const response = await fetch(`${BASE_URL}/rest/v1${path}`, {
+      ...init,
+      headers: buildHeaders(init.headers ?? {}),
+      signal: AbortSignal.timeout(20000),
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(`${init.method ?? 'GET'} ${path} → ${response.status} ${text.slice(0, 300)}`);
+      error.status = response.status;
+      throw error;
+    }
+    return text ? JSON.parse(text) : undefined;
+  };
+
+  try {
+    return await attempt();
+  } catch (error) {
+    // Повторяем только сетевые сбои, а не осмысленные ответы сервера (400/404 и т. п.).
+    if (error?.status) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return attempt();
   }
-  return text ? JSON.parse(text) : undefined;
 };
 
 console.log(`Проверяем Supabase: ${BASE_URL}`);
@@ -94,16 +112,40 @@ console.log(`Ключ: ${ANON_KEY.startsWith('eyJ') ? 'старый anon (JWT)' 
 // --- 1. Таблицы существуют и наполнены
 const subjects = await rest('/subjects?select=*');
 check('Таблица subjects доступна', Array.isArray(subjects));
-check('Предметы залиты из schema.sql (7 штук)', subjects.length === 7, `получено ${subjects.length}`);
+// Предметов не меньше семи: группа может добавлять свои, поэтому проверяем «не меньше».
+check('Предметы залиты из schema.sql (не меньше 7)', subjects.length >= 7, `получено ${subjects.length}`);
 
 const lessons = await rest('/lessons?select=*');
-check('Таблица lessons доступна (16 пар)', Array.isArray(lessons) && lessons.length === 16, `получено ${lessons?.length}`);
+check('Таблица lessons доступна (не меньше 16 пар)', Array.isArray(lessons) && lessons.length >= 16, `получено ${lessons?.length}`);
 
 const tasksBefore = await rest('/tasks?select=*');
 check('Таблица tasks доступна', Array.isArray(tasksBefore));
 
 const meta = await rest('/meta?select=*');
 check('Таблица meta доступна', Array.isArray(meta) && meta.length > 0);
+
+// --- 1.5. Проверяем, применено ли обновление схемы №2 (очно-заочный режим и материалы)
+const probe = async (path) => {
+  try {
+    await rest(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const hasLessonMode = await probe('/lessons?select=lesson_mode&limit=1');
+const hasMaterials = await probe('/materials?select=id&limit=1');
+const hasAttachments = await probe('/tasks?select=attachment_path&limit=1');
+
+check('Схема: у пар есть период обучения (lesson_mode)', hasLessonMode);
+check('Схема: есть таблица материалов', hasMaterials);
+check('Схема: у заданий есть вложения', hasAttachments);
+
+if (!hasLessonMode || !hasMaterials || !hasAttachments) {
+  console.log('\n⚠️  Обновление схемы не применено.');
+  console.log('    Открой SQL Editor и выполни файл supabase/migrations/002-materials-and-lesson-modes.sql\n');
+}
 
 // --- 2. Создание задания (проверяем кириллицу и работу с id из приложения)
 const TITLE = 'Проверка Supabase: лабораторная «Нормализация» — 3НФ';
@@ -161,6 +203,85 @@ await rest('/meta', {
   headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
   body: JSON.stringify({ key: 'group_name', value: 'ИС-31' }),
 });
+
+// --- 4.5. Новые возможности (проверяем только если схема обновлена)
+if (hasLessonMode) {
+  const LESSON_ID = `lesson_check_${Date.now().toString(36)}`;
+  await rest('/lessons', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      id: LESSON_ID,
+      subject_id: 'web',
+      weekday: 'wednesday',
+      start_time: '18:00',
+      end_time: '19:30',
+      room: 'Онлайн',
+      kind: 'lecture',
+      parity: 'all',
+      lesson_mode: 'online',
+      lesson_date: '2030-03-14',
+    }),
+  });
+
+  let lessons = await rest('/lessons?select=*');
+  const onlineLesson = lessons.find((lesson) => lesson.id === LESSON_ID);
+  check('Дистанционное занятие сохранило дату и период', onlineLesson?.lesson_mode === 'online' && onlineLesson?.lesson_date === '2030-03-14');
+
+  await rest(`/lessons?id=eq.${encodeURIComponent(LESSON_ID)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+  lessons = await rest('/lessons?select=*');
+  check('Дистанционное занятие удалено', !lessons.some((lesson) => lesson.id === LESSON_ID));
+}
+
+if (hasAttachments) {
+  const TASK_ID = `task_attach_${Date.now().toString(36)}`;
+  await rest('/tasks', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      id: TASK_ID,
+      subject_id: 'db',
+      title: 'Проверка вложения',
+      description: '',
+      kind: 'lab',
+      due_date: '2030-04-04',
+      attachment_link: 'https://example.com/file.pdf',
+      attachment_name: 'файл.pdf',
+    }),
+  });
+
+  const tasksWithAttachment = await rest('/tasks?select=*');
+  const attached = tasksWithAttachment.find((task) => task.id === TASK_ID);
+  check('Вложение к заданию сохранено', attached?.attachment_link === 'https://example.com/file.pdf');
+
+  await rest(`/tasks?id=eq.${encodeURIComponent(TASK_ID)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+  check('Задание с вложением удалено', !(await rest('/tasks?select=id')).some((task) => task.id === TASK_ID));
+}
+
+if (hasMaterials) {
+  const MATERIAL_ID = `material_check_${Date.now().toString(36)}`;
+  await rest('/materials', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      id: MATERIAL_ID,
+      subject_id: 'db',
+      title: 'Проверочный материал — кириллица',
+      description: 'Создан автотестом',
+      link: 'https://example.com/material.pdf',
+      uploaded_by: 'Автопроверка',
+    }),
+  });
+
+  let materials = await rest('/materials?select=*');
+  const material = materials.find((item) => item.id === MATERIAL_ID);
+  check('Материал создан и кириллица сохранилась', material?.title === 'Проверочный материал — кириллица');
+  check('Автор материала записан', material?.uploaded_by === 'Автопроверка');
+
+  await rest(`/materials?id=eq.${encodeURIComponent(MATERIAL_ID)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+  materials = await rest('/materials?select=*');
+  check('Материал удалён', !materials.some((item) => item.id === MATERIAL_ID));
+}
 
 // --- 5. Удаление задания (убираем за собой)
 await rest(`/tasks?id=eq.${encodeURIComponent(TEST_ID)}`, {

@@ -57,6 +57,10 @@ app.post('/api/tasks', async (req, res) => {
     authorId,
     authorName,
     createdAt,
+    // Вложение к заданию: файл (путь и имя) или внешняя ссылка.
+    attachmentPath,
+    attachmentName,
+    attachmentLink,
   } = req.body ?? {};
 
   // Проверяем обязательные поля: сервер никогда не доверяет клиенту «на слово».
@@ -70,8 +74,9 @@ app.post('/api/tasks', async (req, res) => {
   }
 
   await execute(
-    `INSERT INTO tasks (id, subject_id, title, description, kind, due_date, status, author_id, author_name, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tasks (id, subject_id, title, description, kind, due_date, status, author_id, author_name, created_at,
+                        attachment_path, attachment_name, attachment_link)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id ?? makeId('task'),
       subjectId,
@@ -83,6 +88,9 @@ app.post('/api/tasks', async (req, res) => {
       authorId ?? null,
       authorName ?? null,
       createdAt ?? new Date().toISOString(),
+      attachmentPath ?? null,
+      attachmentName ?? null,
+      attachmentLink ?? null,
     ],
   );
 
@@ -91,13 +99,15 @@ app.post('/api/tasks', async (req, res) => {
 });
 
 app.put('/api/tasks/:id', async (req, res) => {
-  const { subjectId, title, description = '', kind, dueDate, status } = req.body ?? {};
+  const { subjectId, title, description = '', kind, dueDate, status, attachmentPath, attachmentName, attachmentLink } =
+    req.body ?? {};
   const current = await queryOne('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
   if (!current) return res.status(404).json({ error: 'Задание не найдено' });
 
   await execute(
     `UPDATE tasks
-        SET subject_id = ?, title = ?, description = ?, kind = ?, due_date = ?, status = ?
+        SET subject_id = ?, title = ?, description = ?, kind = ?, due_date = ?, status = ?,
+            attachment_path = ?, attachment_name = ?, attachment_link = ?
       WHERE id = ?`,
     [
       subjectId ?? current.subject_id,
@@ -106,6 +116,10 @@ app.put('/api/tasks/:id', async (req, res) => {
       kind ?? current.kind,
       dueDate ?? current.due_date,
       status ?? current.status,
+      // Вложение можно и убрать: тогда клиент пришлёт пустое значение.
+      attachmentPath !== undefined ? (attachmentPath ?? null) : current.attachment_path,
+      attachmentName !== undefined ? (attachmentName ?? null) : current.attachment_name,
+      attachmentLink !== undefined ? (attachmentLink ?? null) : current.attachment_link,
       req.params.id,
     ],
   );
@@ -136,7 +150,8 @@ app.delete('/api/tasks/:id', async (req, res) => {
 
 app.post('/api/lessons', async (req, res) => {
   // id также может прийти из приложения (см. пояснение в POST /api/tasks).
-  const { id, subjectId, weekday, startTime, endTime, room = '', kind, parity = 'all' } = req.body ?? {};
+  const { id, subjectId, weekday, startTime, endTime, room = '', kind, parity = 'all', mode = 'session', date } =
+    req.body ?? {};
 
   if (!subjectId || !weekday || !startTime || !endTime || !kind) {
     return res.status(400).json({ error: 'Нужны поля: subjectId, weekday, startTime, endTime, kind' });
@@ -144,11 +159,27 @@ app.post('/api/lessons', async (req, res) => {
   if (endTime <= startTime) {
     return res.status(400).json({ error: 'Время окончания должно быть позже времени начала' });
   }
+  // Для дистанционного занятия дата обязательна: именно по ней оно и находится.
+  if (mode === 'online' && !date) {
+    return res.status(400).json({ error: 'Для дистанционного занятия нужна дата' });
+  }
 
   await execute(
-    `INSERT INTO lessons (id, subject_id, weekday, start_time, end_time, room, kind, parity)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id ?? makeId('lesson'), subjectId, weekday, startTime, endTime, room, kind, parity],
+    `INSERT INTO lessons (id, subject_id, weekday, start_time, end_time, room, kind, parity, mode, lesson_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id ?? makeId('lesson'),
+      subjectId,
+      weekday,
+      startTime,
+      endTime,
+      room,
+      kind,
+      parity,
+      mode,
+      // Дату храним только у дистанционных занятий.
+      mode === 'online' ? (date ?? null) : null,
+    ],
   );
 
   await touch();
@@ -167,17 +198,23 @@ app.put('/api/lessons/:id', async (req, res) => {
     room = current.room,
     kind = current.kind,
     parity = current.parity,
+    mode = current.mode,
+    date = current.lesson_date,
   } = req.body ?? {};
 
   if (endTime <= startTime) {
     return res.status(400).json({ error: 'Время окончания должно быть позже времени начала' });
   }
+  if (mode === 'online' && !date) {
+    return res.status(400).json({ error: 'Для дистанционного занятия нужна дата' });
+  }
 
   await execute(
     `UPDATE lessons
-        SET subject_id = ?, weekday = ?, start_time = ?, end_time = ?, room = ?, kind = ?, parity = ?
+        SET subject_id = ?, weekday = ?, start_time = ?, end_time = ?, room = ?, kind = ?, parity = ?,
+            mode = ?, lesson_date = ?
       WHERE id = ?`,
-    [subjectId, weekday, startTime, endTime, room, kind, parity, req.params.id],
+    [subjectId, weekday, startTime, endTime, room, kind, parity, mode, mode === 'online' ? (date ?? null) : null, req.params.id],
   );
 
   await touch();
@@ -187,6 +224,131 @@ app.put('/api/lessons/:id', async (req, res) => {
 app.delete('/api/lessons/:id', async (req, res) => {
   const changes = await execute('DELETE FROM lessons WHERE id = ?', [req.params.id]);
   if (changes === 0) return res.status(404).json({ error: 'Пара не найдена' });
+  await touch();
+  return sendGroup(res);
+});
+
+// ---------------------------------------------------------------- ПРЕДМЕТЫ
+
+app.post('/api/subjects', async (req, res) => {
+  const { id, title, short, teacher = '' } = req.body ?? {};
+
+  if (!title || String(title).trim().length < 3) {
+    return res.status(400).json({ error: 'Название предмета должно быть не короче 3 символов' });
+  }
+
+  await execute('INSERT INTO subjects (id, title, short, teacher) VALUES (?, ?, ?, ?)', [
+    id ?? makeId('subject'),
+    String(title).trim(),
+    String(short ?? '').trim() || String(title).trim().slice(0, 6),
+    String(teacher).trim(),
+  ]);
+
+  await touch();
+  return sendGroup(res);
+});
+
+app.put('/api/subjects/:id', async (req, res) => {
+  const current = await queryOne('SELECT * FROM subjects WHERE id = ?', [req.params.id]);
+  if (!current) return res.status(404).json({ error: 'Предмет не найден' });
+
+  const { title = current.title, short = current.short, teacher = current.teacher } = req.body ?? {};
+  if (String(title).trim().length < 3) {
+    return res.status(400).json({ error: 'Название предмета должно быть не короче 3 символов' });
+  }
+
+  await execute('UPDATE subjects SET title = ?, short = ?, teacher = ? WHERE id = ?', [
+    String(title).trim(),
+    String(short).trim() || String(title).trim().slice(0, 6),
+    String(teacher).trim(),
+    req.params.id,
+  ]);
+
+  await touch();
+  return sendGroup(res);
+});
+
+app.delete('/api/subjects/:id', async (req, res) => {
+  // Перед удалением проверяем связи: иначе пары, задания и материалы «осиротеют».
+  const lessons = await queryOne('SELECT COUNT(*) AS total FROM lessons WHERE subject_id = ?', [req.params.id]);
+  const tasks = await queryOne('SELECT COUNT(*) AS total FROM tasks WHERE subject_id = ?', [req.params.id]);
+  const materials = await queryOne('SELECT COUNT(*) AS total FROM materials WHERE subject_id = ?', [req.params.id]);
+
+  const used = Number(lessons.total) + Number(tasks.total) + Number(materials.total);
+  if (used > 0) {
+    return res.status(400).json({
+      error: `Предмет используется: пар ${lessons.total}, заданий ${tasks.total}, материалов ${materials.total}`,
+    });
+  }
+
+  const changes = await execute('DELETE FROM subjects WHERE id = ?', [req.params.id]);
+  if (changes === 0) return res.status(404).json({ error: 'Предмет не найден' });
+
+  await touch();
+  return sendGroup(res);
+});
+
+// ---------------------------------------------------------------- МАТЕРИАЛЫ
+
+/** Локальный сервер файлы не хранит: материалы добавляются ссылкой или описанием. */
+app.post('/api/materials', async (req, res) => {
+  const { id, subjectId, title, description = '', link, uploadedBy, filePath, fileName, fileSize } = req.body ?? {};
+
+  if (!subjectId || !title || String(title).trim().length < 3) {
+    return res.status(400).json({ error: 'Нужны поля: subjectId и title (не короче 3 символов)' });
+  }
+
+  const subject = await queryOne('SELECT id FROM subjects WHERE id = ?', [subjectId]);
+  if (!subject) return res.status(400).json({ error: `Предмет ${subjectId} не найден` });
+
+  await execute(
+    `INSERT INTO materials (id, subject_id, title, description, file_path, file_name, file_size, link, uploaded_by, uploaded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id ?? makeId('material'),
+      subjectId,
+      String(title).trim(),
+      String(description).trim(),
+      filePath ?? null,
+      fileName ?? null,
+      fileSize ?? null,
+      link ?? null,
+      uploadedBy ?? null,
+      new Date().toISOString(),
+    ],
+  );
+
+  await touch();
+  return sendGroup(res);
+});
+
+app.put('/api/materials/:id', async (req, res) => {
+  const current = await queryOne('SELECT * FROM materials WHERE id = ?', [req.params.id]);
+  if (!current) return res.status(404).json({ error: 'Материал не найден' });
+
+  const {
+    subjectId = current.subject_id,
+    title = current.title,
+    description = current.description,
+    link,
+  } = req.body ?? {};
+
+  await execute('UPDATE materials SET subject_id = ?, title = ?, description = ?, link = ? WHERE id = ?', [
+    subjectId,
+    String(title).trim(),
+    String(description).trim(),
+    link !== undefined ? (link ?? null) : current.link,
+    req.params.id,
+  ]);
+
+  await touch();
+  return sendGroup(res);
+});
+
+app.delete('/api/materials/:id', async (req, res) => {
+  const changes = await execute('DELETE FROM materials WHERE id = ?', [req.params.id]);
+  if (changes === 0) return res.status(404).json({ error: 'Материал не найден' });
+
   await touch();
   return sendGroup(res);
 });

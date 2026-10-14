@@ -182,13 +182,15 @@ export const touch = async () => setMeta('updated_at', new Date().toISOString())
 /** Собирает полный набор общих данных группы — ровно тот формат, что ждёт фронтенд. */
 export const readGroupData = async () => {
   // Запросы выполняем параллельно: так ответ приходит быстрее.
-  const [version, groupName, updatedAt, subjects, lessons, tasks] = await Promise.all([
+  const [version, groupName, updatedAt, subjects, lessons, tasks, materials] = await Promise.all([
     getMeta('version'),
     getMeta('group_name'),
     getMeta('updated_at'),
     query('SELECT * FROM subjects ORDER BY title'),
     query('SELECT * FROM lessons ORDER BY start_time'),
     query('SELECT * FROM tasks ORDER BY due_date'),
+    // Свежие материалы — первыми.
+    query('SELECT * FROM materials ORDER BY uploaded_at DESC'),
   ]);
 
   return {
@@ -197,6 +199,7 @@ export const readGroupData = async () => {
     subjects: subjects.map(mapSubject),
     lessons: lessons.map(mapLesson),
     tasks: tasks.map(mapTask),
+    materials: materials.map(mapMaterial),
     updatedAt: updatedAt ?? new Date().toISOString(),
   };
 };
@@ -217,7 +220,8 @@ export const seedIfEmpty = async () => {
 
   for (const lesson of seedLessons) {
     await execute(
-      'INSERT INTO lessons (id, subject_id, weekday, start_time, end_time, room, kind, parity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO lessons (id, subject_id, weekday, start_time, end_time, room, kind, parity, mode, lesson_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         lesson.id,
         lesson.subjectId,
@@ -227,6 +231,9 @@ export const seedIfEmpty = async () => {
         lesson.room,
         lesson.kind,
         lesson.parity,
+        // Тестовые пары — это расписание сессии; дата здесь не нужна.
+        lesson.mode ?? 'session',
+        lesson.mode === 'online' ? (lesson.date ?? null) : null,
       ],
     );
   }
@@ -258,8 +265,10 @@ export const seedIfEmpty = async () => {
 
 /** Полный сброс: удаляет все данные и заливает тестовые заново (кнопка в настройках). */
 export const resetDatabase = async () => {
-  // Порядок важен: сначала зависимые таблицы, потом основная.
-  await execScript('DELETE FROM tasks; DELETE FROM lessons; DELETE FROM subjects; DELETE FROM meta;');
+  // Порядок важен: сначала зависимые таблицы (материалы ссылаются на предметы), потом основная.
+  await execScript(
+    'DELETE FROM materials; DELETE FROM tasks; DELETE FROM lessons; DELETE FROM subjects; DELETE FROM meta;',
+  );
   await seedIfEmpty();
   return readGroupData();
 };

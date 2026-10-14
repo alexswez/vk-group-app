@@ -147,6 +147,94 @@ const newLesson = group.lessons.find((item) => item.weekday === 'saturday' && it
 group = await call(`/api/lessons/${newLesson.id}`, 'DELETE');
 check('DELETE /api/lessons/:id удалил пару', group.lessons.length === lessonsBefore);
 
+// --- 9.5. Очно-заочный режим: дистанционное занятие привязано к дате ---
+group = await call('/api/lessons', 'POST', {
+  subjectId: 'web',
+  weekday: 'wednesday',
+  startTime: '18:00',
+  endTime: '19:30',
+  room: 'Онлайн',
+  kind: 'lecture',
+  parity: 'all',
+  mode: 'online',
+  date: '2030-03-14',
+});
+const onlineLesson = group.lessons.find((item) => item.mode === 'online' && item.date === '2030-03-14');
+check('Дистанционное занятие сохранило период и дату', Boolean(onlineLesson));
+
+const onlineWithoutDate = await callExpectingError('/api/lessons', 'POST', {
+  subjectId: 'web',
+  weekday: 'wednesday',
+  startTime: '18:00',
+  endTime: '19:30',
+  kind: 'lecture',
+  mode: 'online',
+});
+check('Дистанционное занятие без даты отклоняется (400)', onlineWithoutDate === 400, `получено ${onlineWithoutDate}`);
+
+group = await call(`/api/lessons/${onlineLesson.id}`, 'DELETE');
+check('Дистанционное занятие удалено', !group.lessons.some((item) => item.id === onlineLesson.id));
+
+// --- 9.6. Занятие сессии не имеет даты ---
+const sessionLesson = group.lessons.find((item) => item.mode === 'session');
+check('У занятий сессии период = session и нет даты', Boolean(sessionLesson) && sessionLesson.date === undefined);
+
+// --- 9.7. Предметы: создание и изменение названия ---
+group = await call('/api/subjects', 'POST', {
+  id: 'test_subject',
+  title: 'Проверочный предмет',
+  short: 'ПРОВ',
+  teacher: 'Тестов Т. Т.',
+});
+check('Предмет создан', group.subjects.some((subject) => subject.id === 'test_subject'));
+
+group = await call('/api/subjects/test_subject', 'PUT', {
+  title: 'Проверочный предмет (изменён)',
+  short: 'ПР2',
+  teacher: 'Тестов Т. Т.',
+});
+const renamed = group.subjects.find((subject) => subject.id === 'test_subject');
+check('Название предмета изменено', renamed?.short === 'ПР2' && renamed?.title.includes('изменён'));
+
+// --- 9.8. Материалы: создание, защита от удаления используемого предмета, удаление ---
+group = await call('/api/materials', 'POST', {
+  id: 'test_material',
+  subjectId: 'test_subject',
+  title: 'Проверочный материал',
+  description: 'Создан автотестом',
+  link: 'https://example.com/material.pdf',
+  uploadedBy: 'Проверка',
+});
+check('Материал создан', group.materials.some((material) => material.id === 'test_material'));
+
+const subjectInUse = await callExpectingError('/api/subjects/test_subject', 'DELETE');
+check('Удаление предмета с материалами отклоняется (400)', subjectInUse === 400, `получено ${subjectInUse}`);
+
+group = await call('/api/materials/test_material', 'DELETE');
+check('Материал удалён', !group.materials.some((material) => material.id === 'test_material'));
+
+group = await call('/api/subjects/test_subject', 'DELETE');
+check('Свободный предмет удалён', !group.subjects.some((subject) => subject.id === 'test_subject'));
+
+// --- 9.9. Вложение к заданию ---
+group = await call('/api/tasks', 'POST', {
+  subjectId: 'db',
+  title: 'Задание с вложением',
+  description: '',
+  kind: 'lab',
+  dueDate: '2030-04-04',
+  attachmentLink: 'https://example.com/attachment.pdf',
+  attachmentName: 'вложение.pdf',
+});
+const taskWithFile = group.tasks.find((task) => task.title === 'Задание с вложением');
+check(
+  'Вложение к заданию сохранено',
+  taskWithFile?.attachmentLink === 'https://example.com/attachment.pdf' && taskWithFile?.attachmentName === 'вложение.pdf',
+);
+
+group = await call(`/api/tasks/${taskWithFile.id}`, 'DELETE');
+check('Задание с вложением удалено', !group.tasks.some((task) => task.id === taskWithFile.id));
+
 // --- 10. Название группы
 const NEW_NAME = 'ИС-31 (проверка)';
 group = await call('/api/settings', 'PUT', { groupName: NEW_NAME });
