@@ -20,7 +20,7 @@ import { useRouteNavigator } from '@vkontakte/vk-mini-apps-router';
 
 import { PATHS } from '../routes';
 import { useAppData } from '../store/useAppData';
-import { describeSource } from '../storage/api';
+import { describeSource, isSchemaOutdated } from '../storage/api';
 import { formatDate } from '../utils/format';
 
 export const Settings = ({ nav }: NavIdProps) => {
@@ -109,6 +109,14 @@ export const Settings = ({ nav }: NavIdProps) => {
             <span>
               Режим данных: {serverMode ? describeSource() : 'локально — только этот браузер'}
             </span>
+            {/* Предупреждаем, если база работает по старой схеме: тогда часть новых
+                возможностей не сможет сохраниться, и пользователь должен это понимать. */}
+            {serverMode && isSchemaOutdated() && (
+              <span style={{ color: 'var(--vkui--color_text_negative)' }}>
+                База данных обновлена не полностью. Периоды занятий, материалы и вложения могут
+                не сохраняться — примените файл supabase/migrations/002-materials-and-lesson-modes.sql.
+              </span>
+            )}
             <span>Последнее изменение: {formatDate(group.updatedAt.slice(0, 10))}</span>
             <span style={{ color: 'var(--vkui--color_text_secondary)' }}>
               Сейчас данные лежат в памяти браузера (localStorage), поэтому одногруппники пока не видят

@@ -177,6 +177,75 @@ const mutateAndReload = async (action: () => Promise<unknown>): Promise<GroupDat
   return supabaseGetGroup();
 };
 
+/**
+ * База отвечает по СТАРОЙ схеме — обновление ещё не применено.
+ * Запоминаем это, чтобы показать пользователю понятное предупреждение,
+ * а не загадочную ошибку базы.
+ */
+let schemaOutdated = false;
+
+export const isSchemaOutdated = (): boolean => schemaOutdated;
+
+/** Признак того, что база не знает про новую колонку или таблицу. */
+const isMissingSchemaError = (error: unknown): boolean =>
+  /does not exist|PGRST204|PGRST205/i.test(String((error as Error)?.message ?? ''));
+
+/**
+ * Выполняет запись, а если база ещё не знает про новые колонки — повторяет её без них.
+ *
+ * Зачем: обновление схемы может применяться не сразу (это ручной шаг в панели Supabase).
+ * Без этого «страховочного» повтора пользователь потерял бы изменение целиком: например,
+ * не смог бы даже переименовать задание. С повтором запись сохраняется, теряется только
+ * то, что старая схема физически не умеет хранить (период занятия, вложение).
+ */
+const writeWithFallback = async (
+  request: (body: Row) => Promise<unknown>,
+  row: Row,
+  newKeys: string[],
+): Promise<void> => {
+  try {
+    await request(row);
+  } catch (error) {
+    if (!isMissingSchemaError(error)) throw error;
+
+    // Убираем поля, которых нет в старой схеме, и пробуем снова.
+    const legacyRow: Row = { ...row };
+    for (const key of newKeys) delete legacyRow[key];
+    await request(legacyRow);
+
+    schemaOutdated = true;
+  }
+};
+
+/**
+ * Проверяет, какие возможности поддерживает текущая схема базы.
+ * Вызывается при запуске приложения: результат показывается в настройках.
+ */
+export const supabaseProbeSchema = async (): Promise<{
+  lessonMode: boolean;
+  materials: boolean;
+  attachments: boolean;
+}> => {
+  const probe = async (path: string): Promise<boolean> => {
+    try {
+      await rest(path);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const [lessonMode, materials, attachments] = await Promise.all([
+    probe('/lessons?select=lesson_mode&limit=1'),
+    probe('/materials?select=id&limit=1'),
+    probe('/tasks?select=attachment_path&limit=1'),
+  ]);
+
+  if (!lessonMode || !materials || !attachments) schemaOutdated = true;
+
+  return { lessonMode, materials, attachments };
+};
+
 // ---------------------------------------------------------------- ЗАПИСЬ
 
 /** Задание для записи в базу: id и время создания приходят из приложения. */
@@ -244,20 +313,30 @@ const ALL_ROWS = '?id=not.is.null';
 
 export const supabaseCreateTask = (input: TaskRowInput): Promise<GroupData> =>
   mutateAndReload(() =>
-    rest('/tasks', {
-      method: 'POST',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify(taskToRow(input)),
-    }),
+    writeWithFallback(
+      (body) =>
+        rest('/tasks', {
+          method: 'POST',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(body),
+        }),
+      taskToRow(input),
+      ['attachment_path', 'attachment_name', 'attachment_link'],
+    ),
   );
 
 export const supabaseUpdateTask = (id: string, input: TaskInput): Promise<GroupData> =>
   mutateAndReload(() =>
-    rest(`/tasks?id=eq.${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify(taskToRow(input)),
-    }),
+    writeWithFallback(
+      (body) =>
+        rest(`/tasks?id=eq.${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(body),
+        }),
+      taskToRow(input),
+      ['attachment_path', 'attachment_name', 'attachment_link'],
+    ),
   );
 
 export const supabasePatchTask = (id: string, patch: { status: TaskStatus }): Promise<GroupData> =>
@@ -279,20 +358,30 @@ export const supabaseDeleteTask = (id: string): Promise<GroupData> =>
 
 export const supabaseCreateLesson = (input: LessonRowInput): Promise<GroupData> =>
   mutateAndReload(() =>
-    rest('/lessons', {
-      method: 'POST',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify(lessonToRow(input)),
-    }),
+    writeWithFallback(
+      (body) =>
+        rest('/lessons', {
+          method: 'POST',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(body),
+        }),
+      lessonToRow(input),
+      ['lesson_mode', 'lesson_date'],
+    ),
   );
 
 export const supabaseUpdateLesson = (id: string, input: LessonInput): Promise<GroupData> =>
   mutateAndReload(() =>
-    rest(`/lessons?id=eq.${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify(lessonToRow(input)),
-    }),
+    writeWithFallback(
+      (body) =>
+        rest(`/lessons?id=eq.${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(body),
+        }),
+      lessonToRow(input),
+      ['lesson_mode', 'lesson_date'],
+    ),
   );
 
 export const supabaseDeleteLesson = (id: string): Promise<GroupData> =>
@@ -450,30 +539,37 @@ export const supabaseCreateMaterial = (
   uploadedBy?: string,
 ): Promise<GroupData> =>
   mutateAndReload(async () => {
-    let filePath: string | undefined;
+    try {
+      let filePath: string | undefined;
 
-    if (input.file) {
-      filePath = await uploadToStorage(
-        `${input.subjectId}/${id}-${sanitizeFileName(input.file.name)}`,
-        input.file,
-      );
+      if (input.file) {
+        filePath = await uploadToStorage(
+          `${input.subjectId}/${id}-${sanitizeFileName(input.file.name)}`,
+          input.file,
+        );
+      }
+
+      await rest('/materials', {
+        method: 'POST',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          id,
+          subject_id: input.subjectId,
+          title: input.title.trim(),
+          description: input.description.trim(),
+          file_path: filePath ?? null,
+          file_name: input.file?.name ?? null,
+          file_size: input.file?.size ?? null,
+          link: input.link?.trim() || null,
+          uploaded_by: uploadedBy ?? null,
+        }),
+      });
+    } catch (error) {
+      // Материалам нужны таблица materials и файловое хранилище: без обновления схемы
+      // сохранить их нельзя. Отмечаем это, чтобы приложение показало понятное предупреждение.
+      if (isMissingSchemaError(error)) schemaOutdated = true;
+      throw error;
     }
-
-    await rest('/materials', {
-      method: 'POST',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify({
-        id,
-        subject_id: input.subjectId,
-        title: input.title.trim(),
-        description: input.description.trim(),
-        file_path: filePath ?? null,
-        file_name: input.file?.name ?? null,
-        file_size: input.file?.size ?? null,
-        link: input.link?.trim() || null,
-        uploaded_by: uploadedBy ?? null,
-      }),
-    });
   });
 
 /** Меняет описание материала (файл при этом не перезагружается). */

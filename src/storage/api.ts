@@ -14,6 +14,7 @@
 import { GroupData, Task, TaskStatus } from '../types';
 import { LessonInput, MaterialInput, SubjectInput, TaskInput } from '../store/context';
 import {
+  isSchemaOutdated as supabaseSchemaOutdated,
   isSupabaseConfigured,
   materialFileUrl,
   supabaseCreateLesson,
@@ -27,6 +28,7 @@ import {
   supabaseGetGroup,
   supabasePatchTask,
   supabasePing,
+  supabaseProbeSchema,
   supabaseReset,
   supabaseSetGroupName,
   supabaseUpdateLesson,
@@ -105,6 +107,9 @@ export const checkServer = async (): Promise<boolean> => {
     try {
       await supabasePing();
       serverAvailable = true;
+      // Заодно выясняем, применено ли обновление схемы базы: если нет,
+      // приложение покажет предупреждение, а не будет молча терять новые поля.
+      await supabaseProbeSchema();
     } catch {
       serverAvailable = false;
     }
@@ -256,3 +261,10 @@ export const materialUrl = (filePath: string): string => materialFileUrl(filePat
 /** Загрузка файла-вложения к заданию (работает в облачном режиме). */
 export const uploadTaskFile = (taskId: string, file: File): Promise<{ path: string; name: string }> =>
   uploadTaskAttachment(taskId, file);
+
+/**
+ * true, если база отвечает по старой схеме — обновление ещё не применено.
+ * В настройках показываем предупреждение: иначе пользователь не поймёт,
+ * почему новый материал или дистанционное занятие не сохраняются.
+ */
+export const isSchemaOutdated = (): boolean => supabaseSchemaOutdated();
