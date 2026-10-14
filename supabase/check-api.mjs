@@ -112,11 +112,12 @@ console.log(`Ключ: ${ANON_KEY.startsWith('eyJ') ? 'старый anon (JWT)' 
 // --- 1. Таблицы существуют и наполнены
 const subjects = await rest('/subjects?select=*');
 check('Таблица subjects доступна', Array.isArray(subjects));
-// Предметов не меньше семи: группа может добавлять свои, поэтому проверяем «не меньше».
-check('Предметы залиты из schema.sql (не меньше 7)', subjects.length >= 7, `получено ${subjects.length}`);
+// Количество не проверяем: группа может добавлять и удалять свои предметы.
+check('Список предметов не пуст', subjects.length > 0, `получено ${subjects.length}`);
 
 const lessons = await rest('/lessons?select=*');
-check('Таблица lessons доступна (не меньше 16 пар)', Array.isArray(lessons) && lessons.length >= 16, `получено ${lessons?.length}`);
+check('Таблица lessons доступна', Array.isArray(lessons));
+check('Расписание не пустое', lessons.length > 0, `получено ${lessons?.length} пар`);
 
 const tasksBefore = await rest('/tasks?select=*');
 check('Таблица tasks доступна', Array.isArray(tasksBefore));

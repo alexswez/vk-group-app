@@ -37,7 +37,12 @@ try {
   check('Драйвер видит настройки Supabase', driver.isSupabaseConfigured() === true);
 
   let group = await driver.supabaseGetGroup();
-  check('Данные группы прочитаны', group.subjects.length >= 7 && group.lessons.length >= 16, `предметов ${group.subjects.length}, пар ${group.lessons.length}`);
+  // Точное количество не проверяем: группа свободно правит расписание и предметы.
+  check(
+    'Данные группы прочитаны',
+    group.subjects.length > 0 && group.lessons.length > 0 && Array.isArray(group.materials),
+    `предметов ${group.subjects.length}, пар ${group.lessons.length}`,
+  );
   check('Название группы прочитано', typeof group.groupName === 'string' && group.groupName.length > 0, group.groupName);
   check('Предметы отображены в объекты приложения (title, short, teacher)', Boolean(group.subjects[0]?.title && group.subjects[0]?.short));
 
