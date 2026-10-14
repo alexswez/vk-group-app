@@ -1,51 +1,48 @@
-// Сервер общего хранилища: REST API поверх SQLite.
+// Сервер общего хранилища: REST API.
 //
+// Работает с PostgreSQL (если задан DATABASE_URL) или с SQLite-файлом (локально).
 // Запуск:  npm start        (по умолчанию http://localhost:3000)
-// Проверка: http://localhost:3000/health  →  {"ok":true}
+// Проверка: http://localhost:3000/health
 
 import express from 'express';
 import cors from 'cors';
 
-import {
-  db,
-  initSchema,
-  readGroupData,
-  resetDatabase,
-  seedIfEmpty,
-  touch,
-} from './db.js';
+import { dbKind, execute, initDatabase, queryOne } from './database.js';
+import { initSchema, readGroupData, resetDatabase, seedIfEmpty, setMeta, touch } from './db.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 
-initSchema();
-const seeded = seedIfEmpty();
+// Подключаемся к базе и готовим таблицы ДО того, как принимать запросы.
+// Если базы нет или строка подключения неверная — сервер упадёт сразу и с понятной ошибкой.
+await initDatabase();
+await initSchema();
+const seeded = await seedIfEmpty();
 
 const app = express();
 
-// CORS нужен, чтобы фронтенд с другого порта (5173) мог обращаться к серверу (3000).
+// CORS нужен, чтобы фронтенд с другого адреса (например, localhost:5173) мог обращаться к API.
 app.use(cors());
 
 // Разбирает JSON в теле запроса в объект req.body.
 app.use(express.json());
 
-/** Небольшая обёртка: любой ответ API отдаёт ПОЛНЫЙ набор данных группы.
- *  Так фронтенду проще: после любой правки он просто заменяет своё состояние целиком. */
-const sendGroup = (res) => res.json(readGroupData());
+/** Любой ответ API отдаёт ПОЛНЫЙ набор данных группы: так фронтенду проще синхронизироваться. */
+const sendGroup = async (res) => res.json(await readGroupData());
 
-/** Проверка «жив ли сервер». */
+/** Проверка «жив ли сервер» + информация, какая база используется. */
 app.get('/health', (req, res) => {
-  res.json({ ok: true, seeded });
+  res.json({ ok: true, database: dbKind, seeded });
 });
 
 /** Все общие данные группы одним запросом. */
-app.get('/api/group', (req, res) => sendGroup(res));
+app.get('/api/group', async (req, res) => sendGroup(res));
 
 /** Генератор id в том же формате, что и на фронтенде. */
 const makeId = (prefix) => `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 // ---------------------------------------------------------------- ЗАДАНИЯ
 
-app.post('/api/tasks', (req, res) => {
+app.post('/api/tasks', async (req, res) => {
   const { subjectId, title, description = '', kind, dueDate, status = 'todo', authorId, authorName } = req.body ?? {};
 
   // Проверяем обязательные поля: сервер никогда не доверяет клиенту «на слово».
@@ -53,75 +50,77 @@ app.post('/api/tasks', (req, res) => {
     return res.status(400).json({ error: 'Нужны поля: subjectId, title, kind, dueDate' });
   }
 
-  const exists = db.prepare('SELECT id FROM subjects WHERE id = ?').get(subjectId);
-  if (!exists) {
+  const subject = await queryOne('SELECT id FROM subjects WHERE id = ?', [subjectId]);
+  if (!subject) {
     return res.status(400).json({ error: `Предмет ${subjectId} не найден` });
   }
 
-  db.prepare(
+  await execute(
     `INSERT INTO tasks (id, subject_id, title, description, kind, due_date, status, author_id, author_name, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    makeId('task'),
-    subjectId,
-    String(title).trim(),
-    String(description).trim(),
-    kind,
-    dueDate,
-    status,
-    authorId ?? null,
-    authorName ?? null,
-    new Date().toISOString(),
+    [
+      makeId('task'),
+      subjectId,
+      String(title).trim(),
+      String(description).trim(),
+      kind,
+      dueDate,
+      status,
+      authorId ?? null,
+      authorName ?? null,
+      new Date().toISOString(),
+    ],
   );
 
-  touch();
+  await touch();
   return sendGroup(res);
 });
 
-app.put('/api/tasks/:id', (req, res) => {
+app.put('/api/tasks/:id', async (req, res) => {
   const { subjectId, title, description = '', kind, dueDate, status } = req.body ?? {};
-  const current = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+  const current = await queryOne('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
   if (!current) return res.status(404).json({ error: 'Задание не найдено' });
 
-  db.prepare(
+  await execute(
     `UPDATE tasks
         SET subject_id = ?, title = ?, description = ?, kind = ?, due_date = ?, status = ?
       WHERE id = ?`,
-  ).run(
-    subjectId ?? current.subject_id,
-    title !== undefined ? String(title).trim() : current.title,
-    description !== undefined ? String(description).trim() : current.description,
-    kind ?? current.kind,
-    dueDate ?? current.due_date,
-    status ?? current.status,
-    req.params.id,
+    [
+      subjectId ?? current.subject_id,
+      title !== undefined ? String(title).trim() : current.title,
+      description !== undefined ? String(description).trim() : current.description,
+      kind ?? current.kind,
+      dueDate ?? current.due_date,
+      status ?? current.status,
+      req.params.id,
+    ],
   );
 
-  touch();
+  await touch();
   return sendGroup(res);
 });
 
 /** Частичное изменение: используется для переключения статуса «не начато / в работе / сдано». */
-app.patch('/api/tasks/:id', (req, res) => {
+app.patch('/api/tasks/:id', async (req, res) => {
   const { status } = req.body ?? {};
-  const current = db.prepare('SELECT id FROM tasks WHERE id = ?').get(req.params.id);
+  const current = await queryOne('SELECT id FROM tasks WHERE id = ?', [req.params.id]);
   if (!current) return res.status(404).json({ error: 'Задание не найдено' });
 
-  db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(status, req.params.id);
-  touch();
+  await execute('UPDATE tasks SET status = ? WHERE id = ?', [status, req.params.id]);
+  await touch();
   return sendGroup(res);
 });
 
-app.delete('/api/tasks/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Задание не найдено' });
-  touch();
+app.delete('/api/tasks/:id', async (req, res) => {
+  const changes = await execute('DELETE FROM tasks WHERE id = ?', [req.params.id]);
+  if (changes === 0) return res.status(404).json({ error: 'Задание не найдено' });
+  await touch();
   return sendGroup(res);
 });
 
 // ---------------------------------------------------------------- РАСПИСАНИЕ
 
-app.post('/api/lessons', (req, res) => {
+app.post('/api/lessons', async (req, res) => {
   const { subjectId, weekday, startTime, endTime, room = '', kind, parity = 'all' } = req.body ?? {};
 
   if (!subjectId || !weekday || !startTime || !endTime || !kind) {
@@ -131,17 +130,18 @@ app.post('/api/lessons', (req, res) => {
     return res.status(400).json({ error: 'Время окончания должно быть позже времени начала' });
   }
 
-  db.prepare(
+  await execute(
     `INSERT INTO lessons (id, subject_id, weekday, start_time, end_time, room, kind, parity)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(makeId('lesson'), subjectId, weekday, startTime, endTime, room, kind, parity);
+    [makeId('lesson'), subjectId, weekday, startTime, endTime, room, kind, parity],
+  );
 
-  touch();
+  await touch();
   return sendGroup(res);
 });
 
-app.put('/api/lessons/:id', (req, res) => {
-  const current = db.prepare('SELECT * FROM lessons WHERE id = ?').get(req.params.id);
+app.put('/api/lessons/:id', async (req, res) => {
+  const current = await queryOne('SELECT * FROM lessons WHERE id = ?', [req.params.id]);
   if (!current) return res.status(404).json({ error: 'Пара не найдена' });
 
   const {
@@ -158,44 +158,50 @@ app.put('/api/lessons/:id', (req, res) => {
     return res.status(400).json({ error: 'Время окончания должно быть позже времени начала' });
   }
 
-  db.prepare(
+  await execute(
     `UPDATE lessons
         SET subject_id = ?, weekday = ?, start_time = ?, end_time = ?, room = ?, kind = ?, parity = ?
       WHERE id = ?`,
-  ).run(subjectId, weekday, startTime, endTime, room, kind, parity, req.params.id);
+    [subjectId, weekday, startTime, endTime, room, kind, parity, req.params.id],
+  );
 
-  touch();
+  await touch();
   return sendGroup(res);
 });
 
-app.delete('/api/lessons/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM lessons WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Пара не найдена' });
-  touch();
+app.delete('/api/lessons/:id', async (req, res) => {
+  const changes = await execute('DELETE FROM lessons WHERE id = ?', [req.params.id]);
+  if (changes === 0) return res.status(404).json({ error: 'Пара не найдена' });
+  await touch();
   return sendGroup(res);
 });
 
 // ---------------------------------------------------------------- НАСТРОЙКИ И СБРОС
 
-app.put('/api/settings', (req, res) => {
+app.put('/api/settings', async (req, res) => {
   const { groupName } = req.body ?? {};
   if (!groupName || String(groupName).trim().length === 0) {
     return res.status(400).json({ error: 'Название группы не может быть пустым' });
   }
-  db.prepare(
-    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-  ).run('group_name', String(groupName).trim());
-  touch();
+  await setMeta('group_name', String(groupName).trim());
+  await touch();
   return sendGroup(res);
 });
 
-app.post('/api/reset', (req, res) => {
-  resetDatabase();
+app.post('/api/reset', async (req, res) => {
+  await resetDatabase();
   return sendGroup(res);
+});
+
+/** Общий обработчик ошибок: клиент всегда получает понятный JSON, а не HTML. */
+app.use((error, req, res, next) => {
+  console.error('Ошибка API:', error?.message ?? error);
+  res.status(500).json({ error: 'Внутренняя ошибка сервера' });
 });
 
 app.listen(PORT, () => {
   console.log(`API запущено: http://localhost:${PORT}`);
+  console.log(`База данных:  ${dbKind}${dbKind === 'sqlite' ? ' (локальный файл)' : ' (PostgreSQL)'}`);
   console.log(`Проверка:     http://localhost:${PORT}/health`);
   if (seeded) console.log('База была пустой — залиты тестовые данные.');
 });

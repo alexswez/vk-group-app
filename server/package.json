@@ -8,10 +8,15 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "test": "node smoke-test.mjs",
-    "reset": "node -e \"import('./db.js').then(async (m) => { m.resetDatabase(); console.log('База сброшена к тестовым данным'); })\""
+    "check:postgres": "node check-postgres.mjs",
+    "reset": "node -e \"(async () => { const { initDatabase } = await import('./database.js'); const m = await import('./db.js'); await initDatabase(); await m.initSchema(); await m.resetDatabase(); console.log('База сброшена к тестовым данным'); process.exit(0); })()\""
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "pg-mem": "^3.0.14"
   }
 }

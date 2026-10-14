@@ -1,0 +1,29 @@
+# Готовый рецепт развёртывания для Render (https://render.com).
+#
+# Как пользоваться: загрузи проект на GitHub, затем в Render выбери
+# «New → Blueprint» и укажи этот репозиторий. Render сам создаст веб-сервис
+# с нужными командами. Останется вписать DATABASE_URL (получишь в Neon).
+#
+# Если Blueprint не используешь — те же настройки можно указать руками:
+#   Root Directory: server
+#   Build Command:  npm install
+#   Start Command:  npm start
+#   Health Check:   /health
+
+services:
+  - type: web
+    name: vk-group-app-server
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Строка подключения к PostgreSQL из Neon (или другого хостинга базы).
+      # sync: false означает «значение задаётся вручную в панели Render и не хранится в репозитории».
+      - key: DATABASE_URL
+        sync: false
+      # Render сам передаёт PORT — сервер его читает. Явно указывать не нужно.

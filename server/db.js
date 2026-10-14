@@ -1,34 +1,14 @@
-// Работа с базой данных SQLite.
+// Работа с данными: схема таблиц и запросы.
 //
-// Мы используем встроенный в Node.js модуль node:sqlite — он есть в Node 22.5+ и не требует
-// установки никаких дополнительных пакетов и компиляции нативных модулей.
-// Запросы — обычный SQL, поэтому позже перейти на PostgreSQL будет несложно:
-// структура таблиц и логика запросов остаются теми же.
+// Все функции асинхронные, потому что PostgreSQL отвечает по сети. Код одинаково
+// работает и с PostgreSQL, и с SQLite — за это отвечает модуль database.js.
 
-import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { execScript, execute, query, queryOne } from './database.js';
+import { seedGroupName, seedLessons, seedSubjects, seedTasks } from './seed.js';
 
-import { seedSubjects, seedLessons, seedTasks, seedGroupName } from './seed.js';
-
-const currentDir = dirname(fileURLToPath(import.meta.url));
-
-/** Путь к файлу базы. Можно переопределить переменной окружения DB_PATH. */
-const dbPath = process.env.DB_PATH ?? join(currentDir, 'data', 'app.db');
-
-// Создаём папку data/, если её ещё нет.
-mkdirSync(dirname(dbPath), { recursive: true });
-
-/** Единственное соединение с базой на всё приложение. */
-export const db = new DatabaseSync(dbPath);
-
-// WAL-режим позволяет читать базу, пока в неё пишут — для учебного проекта это оптимально.
-db.exec('PRAGMA journal_mode = WAL;');
-
-/** Создаёт таблицы, если их ещё нет (идемпотентно — можно вызывать при каждом запуске). */
-export const initSchema = () => {
-  db.exec(`
+/** Создаёт таблицы, если их ещё нет (можно вызывать при каждом запуске). */
+export const initSchema = async () => {
+  await execScript(`
     CREATE TABLE IF NOT EXISTS subjects (
       id      TEXT PRIMARY KEY,
       title   TEXT NOT NULL,
@@ -38,19 +18,18 @@ export const initSchema = () => {
 
     CREATE TABLE IF NOT EXISTS lessons (
       id         TEXT PRIMARY KEY,
-      subject_id TEXT NOT NULL,
+      subject_id TEXT NOT NULL REFERENCES subjects(id),
       weekday    TEXT NOT NULL,
       start_time TEXT NOT NULL,
       end_time   TEXT NOT NULL,
       room       TEXT NOT NULL DEFAULT '',
       kind       TEXT NOT NULL,
-      parity     TEXT NOT NULL DEFAULT 'all',
-      FOREIGN KEY (subject_id) REFERENCES subjects(id)
+      parity     TEXT NOT NULL DEFAULT 'all'
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
       id          TEXT PRIMARY KEY,
-      subject_id  TEXT NOT NULL,
+      subject_id  TEXT NOT NULL REFERENCES subjects(id),
       title       TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       kind        TEXT NOT NULL,
@@ -58,8 +37,7 @@ export const initSchema = () => {
       status      TEXT NOT NULL DEFAULT 'todo',
       author_id   INTEGER,
       author_name TEXT,
-      created_at  TEXT NOT NULL,
-      FOREIGN KEY (subject_id) REFERENCES subjects(id)
+      created_at  TEXT NOT NULL
     );
 
     -- Таблица «ключ-значение» для общих настроек: название группы, версия, время изменения.
@@ -71,16 +49,17 @@ export const initSchema = () => {
 };
 
 /** Читает одно значение из meta. */
-const getMeta = (key) => {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key);
+const getMeta = async (key) => {
+  const row = await queryOne('SELECT value FROM meta WHERE key = ?', [key]);
   return row ? row.value : null;
 };
 
 /** Записывает значение в meta (вставляет или обновляет — «upsert»). */
-const setMeta = (key, value) => {
-  db.prepare(
+export const setMeta = async (key, value) => {
+  await execute(
     'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-  ).run(key, String(value));
+    [key, String(value)],
+  );
 };
 
 /** Строка из базы → объект предмета для фронтенда (snake_case → camelCase). */
@@ -115,73 +94,90 @@ const mapTask = (row) => ({
   createdAt: row.created_at,
 });
 
-/** Собирает полный набор общих данных группы — ровно тот формат, что ждёт фронтенд. */
-export const readGroupData = () => ({
-  version: Number(getMeta('version') ?? 1),
-  groupName: getMeta('group_name') ?? seedGroupName,
-  subjects: db.prepare('SELECT * FROM subjects ORDER BY title').all().map(mapSubject),
-  lessons: db.prepare('SELECT * FROM lessons ORDER BY start_time').all().map(mapLesson),
-  tasks: db.prepare('SELECT * FROM tasks ORDER BY due_date').all().map(mapTask),
-  updatedAt: getMeta('updated_at') ?? new Date().toISOString(),
-});
-
 /** Обновляет время последнего изменения (вызывается после каждой правки). */
-export const touch = () => setMeta('updated_at', new Date().toISOString());
+export const touch = async () => setMeta('updated_at', new Date().toISOString());
+
+/** Собирает полный набор общих данных группы — ровно тот формат, что ждёт фронтенд. */
+export const readGroupData = async () => {
+  // Запросы выполняем параллельно: так ответ приходит быстрее.
+  const [version, groupName, updatedAt, subjects, lessons, tasks] = await Promise.all([
+    getMeta('version'),
+    getMeta('group_name'),
+    getMeta('updated_at'),
+    query('SELECT * FROM subjects ORDER BY title'),
+    query('SELECT * FROM lessons ORDER BY start_time'),
+    query('SELECT * FROM tasks ORDER BY due_date'),
+  ]);
+
+  return {
+    version: Number(version ?? 1),
+    groupName: groupName ?? seedGroupName,
+    subjects: subjects.map(mapSubject),
+    lessons: lessons.map(mapLesson),
+    tasks: tasks.map(mapTask),
+    updatedAt: updatedAt ?? new Date().toISOString(),
+  };
+};
 
 /** Наполняет базу тестовыми данными, если она пустая. */
-export const seedIfEmpty = () => {
-  const { count } = db.prepare('SELECT COUNT(*) AS count FROM subjects').get();
-  if (count > 0) return false;
+export const seedIfEmpty = async () => {
+  const row = await queryOne('SELECT COUNT(*) AS total FROM subjects');
+  if (Number(row.total) > 0) return false;
 
-  const insertSubject = db.prepare('INSERT INTO subjects (id, title, short, teacher) VALUES (?, ?, ?, ?)');
   for (const subject of seedSubjects) {
-    insertSubject.run(subject.id, subject.title, subject.short, subject.teacher);
+    await execute('INSERT INTO subjects (id, title, short, teacher) VALUES (?, ?, ?, ?)', [
+      subject.id,
+      subject.title,
+      subject.short,
+      subject.teacher,
+    ]);
   }
 
-  const insertLesson = db.prepare(
-    'INSERT INTO lessons (id, subject_id, weekday, start_time, end_time, room, kind, parity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  );
   for (const lesson of seedLessons) {
-    insertLesson.run(
-      lesson.id,
-      lesson.subjectId,
-      lesson.weekday,
-      lesson.startTime,
-      lesson.endTime,
-      lesson.room,
-      lesson.kind,
-      lesson.parity,
+    await execute(
+      'INSERT INTO lessons (id, subject_id, weekday, start_time, end_time, room, kind, parity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        lesson.id,
+        lesson.subjectId,
+        lesson.weekday,
+        lesson.startTime,
+        lesson.endTime,
+        lesson.room,
+        lesson.kind,
+        lesson.parity,
+      ],
     );
   }
 
-  const insertTask = db.prepare(
-    `INSERT INTO tasks (id, subject_id, title, description, kind, due_date, status, author_id, author_name, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
   for (const task of seedTasks) {
-    insertTask.run(
-      task.id,
-      task.subjectId,
-      task.title,
-      task.description,
-      task.kind,
-      task.dueDate,
-      task.status,
-      task.authorId ?? null,
-      task.authorName ?? null,
-      task.createdAt,
+    await execute(
+      `INSERT INTO tasks (id, subject_id, title, description, kind, due_date, status, author_id, author_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        task.id,
+        task.subjectId,
+        task.title,
+        task.description,
+        task.kind,
+        task.dueDate,
+        task.status,
+        task.authorId ?? null,
+        task.authorName ?? null,
+        task.createdAt,
+      ],
     );
   }
 
-  setMeta('group_name', seedGroupName);
-  setMeta('version', 1);
-  touch();
+  await setMeta('group_name', seedGroupName);
+  await setMeta('version', 1);
+  await touch();
   return true;
 };
 
 /** Полный сброс: удаляет все данные и заливает тестовые заново (кнопка в настройках). */
-export const resetDatabase = () => {
-  db.exec('DELETE FROM tasks; DELETE FROM lessons; DELETE FROM subjects; DELETE FROM meta;');
-  seedIfEmpty();
+export const resetDatabase = async () => {
+  // Порядок важен: сначала зависимые таблицы, потом основная.
+  await execScript('DELETE FROM tasks; DELETE FROM lessons; DELETE FROM subjects; DELETE FROM meta;');
+  await seedIfEmpty();
   return readGroupData();
 };
