@@ -1,0 +1,7 @@
+# Что не нужно отправлять в контекст сборки Docker-образа.
+node_modules
+data
+npm-debug.log
+.git
+README.md
+smoke-test.mjs
