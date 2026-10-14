@@ -146,6 +146,46 @@ try {
   group = await driver.supabaseDeleteMaterial(materialId, material.filePath);
   check('Материал удалён', !group.materials.some((item) => item.id === materialId));
 
+  // --- Материал без файла → прикрепляем файл при изменении (и заменяем его) ---
+  const noFileId = `material_nofile_${Date.now().toString(36)}`;
+  group = await driver.supabaseCreateMaterial(
+    noFileId,
+    { subjectId: testSubjectId, title: 'Материал без файла', description: '' },
+    'Автопроверка',
+  );
+  const withoutFile = group.materials.find((item) => item.id === noFileId);
+  check('Материал создан без файла', Boolean(withoutFile) && !withoutFile.filePath);
+
+  group = await driver.supabaseUpdateMaterial(noFileId, {
+    subjectId: testSubjectId,
+    title: 'Материал с файлом (после изменения)',
+    description: 'Файл добавлен при редактировании',
+    file: new File(['файл, прикреплённый при изменении'], 'прикреплён-при-изменении.txt', { type: 'text/plain' }),
+  });
+  const withFile = group.materials.find((item) => item.id === noFileId);
+  check(
+    'Файл прикрепляется при изменении материала',
+    Boolean(withFile?.filePath) && withFile?.fileName === 'прикреплён-при-изменении.txt',
+  );
+  const attached = await fetch(driver.materialFileUrl(withFile.filePath));
+  check('Прикреплённый файл открывается по ссылке', attached.ok, `HTTP ${attached.status}`);
+
+  // Заменяем файл: прежний должен исчезнуть из хранилища, чтобы не копить мусор.
+  const previousPath = withFile.filePath;
+  group = await driver.supabaseUpdateMaterial(noFileId, {
+    subjectId: testSubjectId,
+    title: 'Материал с новым файлом',
+    description: '',
+    file: new File(['второй файл'], 'второй.txt', { type: 'text/plain' }),
+  });
+  const replaced = group.materials.find((item) => item.id === noFileId);
+  check('Файл заменяется при повторном изменении', replaced?.fileName === 'второй.txt');
+  const previous = await fetch(driver.materialFileUrl(previousPath));
+  check('Прежний файл удалён из хранилища', previous.status === 400 || previous.status === 404, `HTTP ${previous.status}`);
+
+  group = await driver.supabaseDeleteMaterial(noFileId, replaced.filePath);
+  check('Материал с файлом удалён', !group.materials.some((item) => item.id === noFileId));
+
   // --- Дистанционное занятие (очно-заочный режим) ---
   const onlineId = `lesson_online_${Date.now().toString(36)}`;
   group = await driver.supabaseCreateLesson({

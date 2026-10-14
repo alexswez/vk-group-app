@@ -603,20 +603,50 @@ export const supabaseCreateMaterial = (
     }
   });
 
-/** Меняет описание материала (файл при этом не перезагружается). */
+/**
+ * Меняет материал. Если выбран новый файл — загружает его в хранилище
+ * и удаляет прежний файл, чтобы в облаке не оставалось мусора.
+ */
 export const supabaseUpdateMaterial = (id: string, input: MaterialInput): Promise<GroupData> =>
-  mutateAndReload(() =>
-    rest(`/materials?id=eq.${encodeURIComponent(id)}`, {
+  mutateAndReload(async () => {
+    let filePath: string | undefined;
+    let oldFilePath: string | undefined;
+
+    if (input.file) {
+      // Сначала узнаём, какой файл прикреплён сейчас: его нужно будет удалить после замены.
+      const rows = await rest<Row[]>(`/materials?id=eq.${encodeURIComponent(id)}&select=file_path`);
+      const current = rows[0]?.file_path;
+      oldFilePath = current ? String(current) : undefined;
+
+      filePath = await uploadToStorage(
+        `${input.subjectId}/${id}-${sanitizeFileName(input.file.name)}`,
+        input.file,
+      );
+    }
+
+    const body: Row = {
+      subject_id: input.subjectId,
+      title: input.title.trim(),
+      description: input.description.trim(),
+      link: input.link?.trim() || null,
+    };
+
+    // Поля файла трогаем только тогда, когда действительно выбран новый файл.
+    if (input.file && filePath) {
+      body.file_path = filePath;
+      body.file_name = input.file.name;
+      body.file_size = input.file.size;
+    }
+
+    await rest(`/materials?id=eq.${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify({
-        subject_id: input.subjectId,
-        title: input.title.trim(),
-        description: input.description.trim(),
-        link: input.link?.trim() || null,
-      }),
-    }),
-  );
+      body: JSON.stringify(body),
+    });
+
+    // Прежний файл удаляем только после успешного обновления записи.
+    if (oldFilePath && oldFilePath !== filePath) await deleteFromStorage(oldFilePath);
+  });
 
 /** Удаляет материал вместе с его файлом в хранилище. */
 export const supabaseDeleteMaterial = (id: string, filePath?: string): Promise<GroupData> =>
