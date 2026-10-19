@@ -211,6 +211,7 @@ API (технология PostgREST), поэтому отдельный хост
 | Параметр | Значение |
 |---|---|
 | Приложение | https://vk.com/app54822849 (ID приложения 54822849) |
+| Публичный адрес (без ВКонтакте, без модерации) | https://ispsv301.netlify.app |
 | Опубликованная версия | 1791995070, сборка `index-CJoU96WI.js` |
 | Общее хранилище | Supabase: PostgreSQL + REST API + файловое хранилище |
 | Схема базы | [supabase/schema.sql](supabase/schema.sql) + [supabase/migrations/002-materials-and-lesson-modes.sql](supabase/migrations/002-materials-and-lesson-modes.sql) |

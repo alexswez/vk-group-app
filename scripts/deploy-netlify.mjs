@@ -1,23 +1,23 @@
-// Публикация сайта на Netlify через API — без установки дополнительных пакетов.
+// Публикация сайта на Netlify через API — без установки дополнительных пакетов и без zip-архива.
 //
 // Запуск (из папки проекта):
-//   node scripts/deploy-netlify.mjs            # соберёт сайт и опубликует
-//   node scripts/deploy-netlify.mjs --no-build # опубликовать уже собранное
+//   npm run deploy:netlify              # соберёт сайт и опубликует
+//   npm run deploy:netlify -- --no-build  # опубликовать уже собранное
 //
 // Токен берётся из переменной окружения NETLIFY_TOKEN или из файла .env.local
-// (строка вида NETLIFY_TOKEN=xxxx). Токен в репозиторий не попадает: .env.local в .gitignore.
+// (строка NETLIFY_TOKEN=...). Токен в репозиторий не попадает: .env.local в .gitignore.
 //
-// Что делает скрипт:
-//   1) собирает сайт (vite build) — если не передан --no-build;
-//   2) упаковывает папку build в zip (через PowerShell, он есть в Windows);
-//   3) находит или создаёт сайт с нужным именем (по умолчанию ispsv301);
-//   4) загружает архив как новую версию (deploy);
-//   5) ждёт, пока Netlify объявит версию готовой, и печатает адрес.
+// Почему не архив: PowerShell и tar на Windows записывают пути внутри zip то с обратными
+// слэшами, то с префиксом "./" — Netlify раскладывает такие файлы не по своим адресам,
+// и вложенные файлы отдают 404. Поэтому используется API «по отпечаткам файлов»:
+//   1) отправляем список файлов с их SHA1 — Netlify отвечает, чего у него не хватает;
+//   2) догружаем только недостающие файлы, каждый по своему точному пути;
+//   3) ждём, когда публикация станет готовой.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 
 const API = 'https://api.netlify.com/api/v1';
 const SITE_NAME = process.env.NETLIFY_SITE_NAME ?? 'ispsv301';
@@ -42,10 +42,7 @@ const token = readToken();
 const api = async (path, init = {}) => {
   const response = await fetch(`${API}${path}`, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {}),
-    },
+    headers: { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
   });
 
   const text = await response.text();
@@ -65,17 +62,22 @@ if (!existsSync('build/index.html')) {
   throw new Error('Нет папки build. Сначала выполни сборку (npm run build).');
 }
 
-/** Упаковка сборки в zip: Netlify принимает именно архив. */
-const zipPath = join(tmpdir(), `netlify-${Date.now()}.zip`);
-console.log('Упаковываю в архив…');
-execFileSync('powershell', [
-  '-NoProfile',
-  '-Command',
-  `Compress-Archive -Path 'build\\*' -DestinationPath '${zipPath}' -Force`,
-]);
+/** Обходит папку сборки и собирает список файлов: путь с прямыми слэшами → содержимое. */
+const collectFiles = (dir, root = dir, out = []) => {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) collectFiles(full, root, out);
+    else out.push({ path: relative(root, full).split(sep).join('/'), full });
+  }
+  return out;
+};
 
-const sizeKb = Math.round(statSync(zipPath).size / 1024);
-console.log(`Архив готов: ${sizeKb} КБ`);
+const files = collectFiles('build');
+const digests = {};
+for (const file of files) {
+  digests[file.path] = createHash('sha1').update(readFileSync(file.full)).digest('hex');
+}
+console.log(`Файлов к публикации: ${files.length}`);
 
 /** Ищем сайт с нужным именем; если нет — создаём. */
 console.log(`Ищу сайт ${SITE_NAME}.netlify.app…`);
@@ -92,25 +94,43 @@ if (!site) {
 } else {
   console.log('Сайт уже существует, обновляю его.');
 }
-
 console.log(`Сайт: ${site.name} (${site.ssl_url ?? site.url})`);
 
-/** Загрузка новой версии: тело запроса — zip-архив. */
-console.log('Загружаю файлы…');
+/** Начинаем публикацию: передаём отпечатки файлов. */
 const deploy = await api(`/sites/${site.id}/deploys`, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/zip' },
-  body: readFileSync(zipPath),
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ files: digests }),
 });
 
-rmSync(zipPath, { force: true });
+/** Netlify сообщает, каких файлов у него нет — их и загружаем. */
+const required = deploy.required ?? [];
+console.log(`Netlify запросил файлов: ${required.length}`);
 
-/** Ожидание готовности (обычно несколько секунд). */
+for (const path of required) {
+  const file = files.find((item) => item.path === path);
+  if (!file) {
+    console.warn(`  пропущен (нет в сборке): ${path}`);
+    continue;
+  }
+
+  const response = await fetch(`${API}/deploys/${deploy.id}/files/${path}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
+    body: readFileSync(file.full),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Загрузка ${path} → ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  }
+  console.log(`  загружен: ${path}`);
+}
+
+/** Ожидание готовности публикации. */
 let state = deploy.state;
 for (let attempt = 0; attempt < 40 && state !== 'ready' && state !== 'error'; attempt += 1) {
   await new Promise((resolve) => setTimeout(resolve, 3000));
-  const current = await api(`/deploys/${deploy.id}`);
-  state = current.state;
+  state = (await api(`/deploys/${deploy.id}`)).state;
   process.stdout.write(`  состояние: ${state}\n`);
 }
 
