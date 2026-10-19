@@ -10,6 +10,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "deploy": "vite build && vk-miniapps-deploy",
+    "deploy:surge": "vite build && npx --yes surge ./build ispsv301.surge.sh",
     "test": "node --test tests/",
     "check": "tsc --noEmit && npm run lint && npm test",
     "check:driver": "node scripts/check-driver.mjs"
