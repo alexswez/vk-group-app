@@ -48,7 +48,7 @@ const PERIOD_OPTIONS: { value: LessonMode; label: string; hint: string }[] = [
 ];
 
 export const Schedule = ({ nav }: NavIdProps) => {
-  const { lessons, subjects, group, prefs, deleteLesson, startLessonEditing } = useAppData();
+  const { lessons, subjects, group, prefs, serverMode, refresh, deleteLesson, startLessonEditing } = useAppData();
   const routeNavigator = useRouteNavigator();
 
   const todayIndex = todayWeekdayIndex();
@@ -141,6 +141,22 @@ export const Schedule = ({ nav }: NavIdProps) => {
           </Button>
         </Div>
       </Group>
+
+      {/* Если облако недоступно, честно об этом сообщаем: иначе непонятно, почему
+          данные старые. Кнопка запускает повторную попытку подключиться. */}
+      {!serverMode && (
+        <Group>
+          <Div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 14 }}>
+            <span>
+              Нет связи с облаком — показаны данные, сохранённые на этом устройстве.
+              Изменения сейчас не увидят одногруппники.
+            </span>
+            <Button size="m" mode="secondary" onClick={() => void refresh()}>
+              Проверить снова
+            </Button>
+          </Div>
+        </Group>
+      )}
 
       {/* Период обучения — главное отличие очно-заочной формы. */}
       <Tabs>

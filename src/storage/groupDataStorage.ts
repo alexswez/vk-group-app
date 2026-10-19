@@ -68,6 +68,13 @@ export const saveGroupData = async (data: GroupData): Promise<void> => {
   saveToLocalStorage(data);
 };
 
+/**
+ * Данные из памяти браузера, без обращения к серверу.
+ * Нужно как страховка: если облако не ответило за отведённое время,
+ * приложение показывает то, что успело сохранить, и не висит на загрузке.
+ */
+export const loadLocalGroupData = (): GroupData => normalizeGroupData(loadFromLocalStorage());
+
 /** Сброс к тестовым данным: на сервере или локально. */
 export const resetGroupData = async (): Promise<GroupData> => {
   if (isServerAvailable()) {

@@ -10,7 +10,7 @@ import bridge, { UserInfo } from '@vkontakte/vk-bridge';
 
 import { GroupData, Lesson, Material, Subject, Task, TaskStatus, UserPrefs } from '../types';
 import { createMockGroupData } from '../data/mockData';
-import { loadGroupData, resetGroupData, saveGroupData } from '../storage/groupDataStorage';
+import { loadGroupData, loadLocalGroupData, resetGroupData, saveGroupData } from '../storage/groupDataStorage';
 import { normalizeGroupData } from '../storage/normalize';
 import { DEFAULT_PREFS, loadUserPrefs, saveUserPrefs } from '../storage/userPrefs';
 import {
@@ -65,14 +65,49 @@ export const AppDataProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     let cancelled = false;
 
+    /**
+     * Не ждём загрузку дольше 12 секунд.
+     *
+     * Зачем: если облако недоступно (нет сети, провайдер блокирует адрес), запрос может
+     * висеть очень долго, и приложение застревало на экране загрузки — «вечный спиннер».
+     * Теперь по истечении времени показываем сохранённые данные, а свежие подтянутся
+     * позже (при возврате в приложение или по кнопке «Проверить снова»).
+     */
+    const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
+      const guarded = promise.catch(() => null);
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          guarded,
+          new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), ms);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
     // Данные группы: внутри loadGroupData сначала проверяется сервер, потом localStorage.
     void (async () => {
-      const [loadedGroup, loadedPrefs] = await Promise.all([loadGroupData(), loadUserPrefs()]);
-      if (cancelled) return;
-      setGroup(loadedGroup);
-      setPrefs(loadedPrefs);
-      setServerMode(isServerAvailable());
-      setLoading(false);
+      try {
+        const [loadedGroup, loadedPrefs] = await Promise.all([
+          withTimeout(loadGroupData(), 12000),
+          loadUserPrefs(),
+        ]);
+        if (cancelled) return;
+
+        // null означает «облако не успело ответить» — берём копию с этого устройства.
+        setGroup(loadedGroup ?? loadLocalGroupData());
+        setPrefs(loadedPrefs);
+        setServerMode(isServerAvailable() && loadedGroup !== null);
+      } catch {
+        if (!cancelled) setGroup(loadLocalGroupData());
+      } finally {
+        // Экран загрузки закрываем ВСЕГДА — даже если что-то пошло не так.
+        if (!cancelled) setLoading(false);
+      }
     })();
 
     // Данные пользователя VK: вне ВКонтакте вызов не сработает — это нормально.

@@ -34,15 +34,50 @@ const loadFromLocalStorage = (): UserPrefs => {
   }
 };
 
+/** Сколько ждём ответа от VK Bridge, прежде чем работать без него. */
+const BRIDGE_TIMEOUT_MS = 2500;
+
+/**
+ * Ждёт промис не дольше указанного времени и возвращает запасное значение.
+ *
+ * Зачем это нужно: вне ВКонтакте (обычный браузер, сторонний хостинг) VK Bridge
+ * не отвечает вообще — промис не отклоняется, а просто «висит». Без таймаута
+ * приложение навсегда оставалось на экране загрузки: именно это и случилось,
+ * когда мы открыли сайт вне ВКонтакте.
+ */
+const withTimeout = async <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+  // Если промис всё-таки упадёт позже, ошибка не должна «выстрелить» без обработчика.
+  const guarded = promise.catch(() => fallback);
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      guarded,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
 /** Загружает личные настройки: сначала пробуем VK Storage, при неудаче — localStorage. */
 export const loadUserPrefs = async (): Promise<UserPrefs> => {
+  // undefined означает «ВКонтакте не ответил вовремя» или «настройки ещё не сохранялись».
+  const raw = await withTimeout(
+    bridge.send('VKWebAppStorageGet', { keys: [PREFS_KEY] }).then(
+      (result) => result.keys.find((item) => item.key === PREFS_KEY)?.value,
+    ),
+    BRIDGE_TIMEOUT_MS,
+    undefined,
+  );
+
+  if (!raw) return loadFromLocalStorage();
+
   try {
-    const result = await bridge.send('VKWebAppStorageGet', { keys: [PREFS_KEY] });
-    const raw = result.keys.find((item) => item.key === PREFS_KEY)?.value;
-    if (!raw) return DEFAULT_PREFS;
     return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<UserPrefs>) };
   } catch {
-    // Вне ВКонтакте VK Bridge не отвечает — это ожидаемая ситуация при разработке.
     return loadFromLocalStorage();
   }
 };
@@ -54,9 +89,6 @@ export const saveUserPrefs = async (prefs: UserPrefs): Promise<void> => {
   // Дублируем в localStorage всегда: так настройки не потеряются при запуске в браузере.
   localStorage.setItem(FALLBACK_KEY, raw);
 
-  try {
-    await bridge.send('VKWebAppStorageSet', { key: PREFS_KEY, value: raw });
-  } catch {
-    // Если мы не внутри ВКонтакте — данные уже сохранены в localStorage, ничего страшного.
-  }
+  // Отправку в VK Storage не ждём дольше пары секунд: вне ВКонтакте она не ответит.
+  await withTimeout(bridge.send('VKWebAppStorageSet', { key: PREFS_KEY, value: raw }), BRIDGE_TIMEOUT_MS, undefined);
 };
