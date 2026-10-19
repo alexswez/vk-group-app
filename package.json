@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "deploy": "vite build && vk-miniapps-deploy",
     "deploy:surge": "vite build && npx --yes surge ./build ispsv301.surge.sh",
+    "deploy:netlify": "node scripts/deploy-netlify.mjs",
     "test": "node --test tests/",
     "check": "tsc --noEmit && npm run lint && npm test",
     "check:driver": "node scripts/check-driver.mjs"
